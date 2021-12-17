@@ -28,13 +28,13 @@ fn impl_http_create_macro(ast: &syn::DeriveInput) -> proc_macro::TokenStream {
     let name = &ast.ident;
     let gen = quote! {
         #[async_trait]
-        impl HttpCreate<#name, #query> for #name {
-            async fn http_create(payload: web::Json<#name>, query: web::Query<#query>) -> Result<HttpResponse, HttpResponse>{
+        impl HttpCreate<#query> for #name {
+            async fn http_create(payload: web::Json<Box<#name>>, query: web::Query<#query>) -> Result<HttpResponse, HttpResponse>{
                 let params = query.into_inner();
                 let to_save = payload.into_inner();
                 let result = to_save.save(&params).await;
                 match result {
-                    Ok(res) => Ok(HttpResponse::Ok().body(json!(res))),
+                    Ok(res) => Ok(HttpResponse::Ok().body(serde_json::json!(res))),
                     Err(err) => Err(HttpResponse::InternalServerError().body(err.to_string()))
                 }
             }
@@ -74,7 +74,7 @@ fn impl_http_all_macro(ast: &syn::DeriveInput) -> proc_macro::TokenStream {
                 let params = query.into_inner();
                 let result = #name::all(&params).await;
                 match result {
-                    Ok(res) => Ok(HttpResponse::Ok().body(json!(res))),
+                    Ok(res) => Ok(HttpResponse::Ok().body(serde_json::json!(res))),
                     Err(err) => Err(HttpResponse::InternalServerError().body(err.to_string()))
                 }
             }
@@ -117,7 +117,7 @@ fn impl_http_find_macro(ast: &syn::DeriveInput) -> proc_macro::TokenStream {
                 let params = query.into_inner();
                 let result = #name::find(info.id.into(), &params).await;
                 match result {
-                    Ok(res) => Ok(HttpResponse::Ok().body(json!(res))),
+                    Ok(res) => Ok(HttpResponse::Ok().body(serde_json::json!(res))),
                     Err(err) => Err(HttpResponse::NotFound().body("ENTITY_NOT_FOUND"))
                 }
             }
@@ -126,7 +126,7 @@ fn impl_http_find_macro(ast: &syn::DeriveInput) -> proc_macro::TokenStream {
     gen.into()
 }
 
-struct HttpDeleteDeriveParams (syn::Ident, syn::Ident);
+struct HttpDeleteDeriveParams (syn::Ident, syn::Ident, syn::Ident);
 impl syn::parse::Parse for HttpDeleteDeriveParams {
     fn parse(input: syn::parse::ParseStream) -> SynResult<Self> {
         let content;
@@ -134,7 +134,9 @@ impl syn::parse::Parse for HttpDeleteDeriveParams {
         let path = content.parse()?;
         content.parse::<Token![,]>()?;
         let query = content.parse()?;
-        Ok(HttpDeleteDeriveParams(path, query))
+        content.parse::<Token![,]>()?;
+        let find_query = content.parse()?;
+        Ok(HttpDeleteDeriveParams(path, query, find_query))
     }
 }
 
@@ -150,7 +152,7 @@ fn impl_http_delete_macro(ast: &syn::DeriveInput) -> proc_macro::TokenStream {
     ).nth(0).expect("http_delete attribute required for deriving HttpDelete!");
 
     let parameter: HttpDeleteDeriveParams = syn::parse2(attribute.tokens.clone()).expect("Invalid http_delete attribute!");
-    let HttpDeleteDeriveParams(path, query) = parameter;
+    let HttpDeleteDeriveParams(path, query, find_query) = parameter;
 
     let name = &ast.ident;
     let gen = quote! {
@@ -158,12 +160,13 @@ fn impl_http_delete_macro(ast: &syn::DeriveInput) -> proc_macro::TokenStream {
         impl HttpDelete<#path, #query> for #name {
             async fn http_delete(info: web::Path<#path>, query: web::Query<#query>) -> Result<HttpResponse, HttpResponse> {
                 let params = query.into_inner();
-                let result = #name::find(info.id.into(), &params).await;
+                let find_params = #find_query { ..Default::default() };
+                let result = #name::find(info.id.into(), &find_params).await;
 
                 match result {
                     Ok(entity) => {
                         match entity.delete(&params).await {
-                            Ok(e) => Ok(HttpResponse::Ok().body(json!(e))),
+                            Ok(e) => Ok(HttpResponse::Ok().body(serde_json::json!(e))),
                             Err(err) => Err(HttpResponse::InternalServerError().body(err.to_string()))
                         }
                     }
@@ -175,7 +178,7 @@ fn impl_http_delete_macro(ast: &syn::DeriveInput) -> proc_macro::TokenStream {
     gen.into()
 }
 
-struct HttpUpdateDeriveParams (syn::Ident, syn::Ident, syn::Ident);
+struct HttpUpdateDeriveParams (syn::Ident, syn::Ident, syn::Ident, syn::Ident);
 impl syn::parse::Parse for HttpUpdateDeriveParams {
     fn parse(input: syn::parse::ParseStream) -> SynResult<Self> {
         let content;
@@ -185,7 +188,9 @@ impl syn::parse::Parse for HttpUpdateDeriveParams {
         let query = content.parse()?;
         content.parse::<syn::Token![,]>()?;
         let output = content.parse()?;
-        Ok(HttpUpdateDeriveParams(path, query, output))
+        content.parse::<syn::Token![,]>()?;
+        let find_query = content.parse()?;
+        Ok(HttpUpdateDeriveParams(path, query, output, find_query))
     }
 }
 
@@ -201,21 +206,22 @@ fn impl_http_update_macro(ast: &syn::DeriveInput) -> proc_macro::TokenStream {
     ).nth(0).expect("http_update attribute required for deriving HttpUpdate!");
 
     let parameter: HttpUpdateDeriveParams = syn::parse2(attribute.tokens.clone()).expect("Invalid http_update attribute!");
-    let HttpUpdateDeriveParams(path, query, output) = parameter;
+    let HttpUpdateDeriveParams(path, query, output, find_query) = parameter;
 
     let name = &ast.ident;
     let gen = quote! {
         #[async_trait]
-        impl HttpUpdate<#path, #query, #output> for #name {
+        impl HttpUpdate<#path, #query> for #name {
             async fn http_update(info: web::Path<#path>, payload: web::Json<Box<#name>>, query: web::Query<#query>) -> Result<HttpResponse, HttpResponse> {
-                let entity = payload.into_inner();
+                let to_update = payload.into_inner();
                 let params = query.into_inner();
-                let result: = #output::find(info.id.into(), &params).await;
+                let find_params = #find_query { ..Default::default() };
+                let result = #output::find(info.id.into(), &find_params).await;
 
                 match result {
                     Ok(entity) => {
-                        match entity.update(&params).await {
-                            Ok(e) => Ok(HttpResponse::Ok().body(json!(e))),
+                        match to_update.update(&params).await {
+                            Ok(e) => Ok(HttpResponse::Ok().body(serde_json::json!(e))),
                             Err(err) => Err(HttpResponse::InternalServerError().body(err.to_string()))
                         }
                     }

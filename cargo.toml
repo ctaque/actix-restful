@@ -4,3 +4,7 @@ members = [
     "actix-restful",
     "actix-restful-derive"
 ]
+
+exclude = [
+    "examples"
+]
