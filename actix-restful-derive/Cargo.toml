@@ -6,3 +6,12 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+actix-web = { version = "3.3.2", features = ["rust-tls"] }
+darling = "0.13.1"
+proc-macro2 = "1.0.34"
+quote = "1.0.10"
+syn = { version = "1.0.82", features = ["full"] }
+actix-restful = { version = "0.1.0", path = "../actix-restful" }
+
+[lib]
+proc-macro = true
