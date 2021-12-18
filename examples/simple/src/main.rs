@@ -1,8 +1,8 @@
 use serde::{Serialize, Deserialize};
 use actix_restful::{
-    HttpCreate, HttpFind, HttpUpdate, HttpDelete, HttpAll, Model, NewModel, UpdatableModel
+    HttpCreate, HttpFindListDelete, HttpUpdate, Model, NewModel, UpdatableModel
 };
-use actix_restful_derive::{HttpCreate, HttpFind, HttpUpdate, HttpDelete, HttpAll};
+use actix_restful_derive::{HttpCreate, HttpFindListDelete, HttpUpdate};
 use anyhow::Result;
 use chrono::prelude::*;
 use async_trait::async_trait;
@@ -10,67 +10,47 @@ use std::default::Default;
 use actix_web::{App, web, HttpResponse, HttpServer};
 use serde_json;
 
-
 #[derive(Default, Deserialize)]
 struct FindQuery {}
 #[derive(Deserialize)]
-struct AllQuery {}
+struct ListQuery {}
 #[derive(Deserialize)]
 struct DeleteQuery {}
-type AllResult = Vec<Item>;
+type ListResult = Vec<Item>;
 type DeleteResult = Item;
 #[derive(Deserialize)]
 struct SaveQuery {}
 #[derive(Deserialize)]
 struct UpdateQuery {}
+type Id = i64;
 
-
-#[derive(Default, Serialize, Deserialize, HttpFind, HttpAll, HttpDelete)]
-#[http_find(FindPathParams, FindQuery)]
-#[http_all(AllQuery)]
-#[http_delete(FindPathParams, DeleteQuery, FindQuery)]
+#[derive(Default, Serialize, Deserialize, HttpFindListDelete)]
+#[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery)]
 struct Item {
-    id: i64,
+    id: Id,
     content: String,
     deleted_at: Option<DateTime<Utc>>,
     updated_at: Option<DateTime<Utc>>,
     created_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Serialize, Deserialize, HttpCreate)]
-#[http_create(SaveQuery)]
-struct NewItem {
-    content: String,
-}
-
-#[derive(Serialize, Deserialize, HttpUpdate)]
-#[http_update(FindPathParams,UpdateQuery,Item,FindQuery)]
-struct UpdatableItem {
-    id: i64,
-    content: String,
-    updated_at: Option<DateTime<Utc>>,
-}
-
-#[derive(Deserialize)]
-struct FindPathParams {
-    id: i64,
-}
-
 #[async_trait]
-impl Model<Item, i64, FindQuery, AllQuery, AllResult, DeleteQuery, DeleteResult> for Item {
-    async fn find(id: i64, _query: &FindQuery) -> Result<Item> {
+impl Model<Id, FindQuery, ListQuery, ListResult, DeleteQuery, DeleteResult> for Item {
+    async fn find(id: Id, _query: &FindQuery) -> Result<Box<Item>> {
         // fetch from somwhere with id and return result
         Ok(
-            Item {
-                id,
-                content: String::from("test"),
-                deleted_at: None,
-                updated_at: None,
-                created_at: None,
-            }
+            Box::new(
+                Item {
+                    id,
+                    content: String::from("test"),
+                    deleted_at: None,
+                    updated_at: None,
+                    created_at: None,
+                }
+            )
         )
     }
-    async fn all(_query: &AllQuery) -> Result<AllResult> {
+    async fn list(_query: &ListQuery) -> Result<ListResult> {
         // list
         let mut res = Vec::new();
         for i in 0..2{
@@ -92,7 +72,11 @@ impl Model<Item, i64, FindQuery, AllQuery, AllResult, DeleteQuery, DeleteResult>
     }
 }
 
-
+#[derive(Serialize, Deserialize, HttpCreate)]
+#[http_create(SaveQuery)]
+struct NewItem {
+    content: String,
+}
 #[async_trait]
 impl NewModel<Item, SaveQuery> for NewItem {
     async fn save(self: Self, _query: &SaveQuery) -> Result<Item> {
@@ -108,7 +92,13 @@ impl NewModel<Item, SaveQuery> for NewItem {
     }
 }
 
-
+#[derive(Serialize, Deserialize, HttpUpdate)]
+#[http_update(i64, UpdateQuery, Item, FindQuery)]
+struct UpdatableItem {
+    id: Id,
+    content: String,
+    updated_at: Option<DateTime<Utc>>,
+}
 #[async_trait]
 impl UpdatableModel<UpdatableItem, UpdateQuery> for UpdatableItem {
     async fn update(mut self: Self, _query: &UpdateQuery) -> Result<UpdatableItem> {
@@ -124,7 +114,7 @@ async fn main() -> std::io::Result<()>{
     HttpServer::new(|| {
         App::new()
             .route("/item/{id}", web::get().to(Item::http_find))
-            .route("/item", web::get().to(Item::http_all))
+            .route("/item", web::get().to(Item::http_list))
             .route("/item", web::post().to(NewItem::http_create))
             .route("/item/{id}", web::delete().to(Item::http_delete))
             .route("/item/{id}", web::put().to(UpdatableItem::http_update))

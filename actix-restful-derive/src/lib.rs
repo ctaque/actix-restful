@@ -43,77 +43,53 @@ fn impl_http_create_macro(ast: &syn::DeriveInput) -> proc_macro::TokenStream {
     gen.into()
 }
 
-struct HttpAllDeriveParams (syn::Ident);
-impl syn::parse::Parse for HttpAllDeriveParams {
+struct HttpFindListDeleteDeriveParams (syn::Ident, syn::Ident, syn::Ident, syn::Ident);
+impl syn::parse::Parse for HttpFindListDeleteDeriveParams {
     fn parse(input: syn::parse::ParseStream) -> SynResult<Self> {
         let content;
         syn::parenthesized!(content in input);
-        let query = content.parse()?;
-        Ok(HttpAllDeriveParams(query))
+
+        let id = content.parse()?;
+        content.parse::<Token![,]>()?;
+        let find_query = content.parse()?;
+        content.parse::<Token![,]>()?;
+        let list_query = content.parse()?;
+        content.parse::<Token![,]>()?;
+        let delete_query = content.parse()?;
+        Ok(HttpFindListDeleteDeriveParams(id, find_query, list_query, delete_query))
     }
 }
-#[proc_macro_derive(HttpAll, attributes(http_all))]
-pub fn http_all(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+#[proc_macro_derive(HttpFindListDelete, attributes(http_find_list_delete))]
+pub fn http_find_list_delete(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let ast = syn::parse(input).unwrap();
-    impl_http_all_macro(&ast)
+    impl_http_find_list_delete_macro(&ast)
 }
 
-fn impl_http_all_macro(ast: &syn::DeriveInput) -> proc_macro::TokenStream {
+fn impl_http_find_list_delete_macro(ast: &syn::DeriveInput) -> proc_macro::TokenStream {
     let attribute = ast.attrs.iter().filter(
-        |a| a.path.segments.len() == 1 && a.path.segments[0].ident == "http_all"
-    ).nth(0).expect("http_all attribute required for deriving HttpAll!");
+        |a| a.path.segments.len() == 1 && a.path.segments[0].ident == "http_find_list_delete"
+    ).nth(0).expect("http_find_list_delete attribute required for deriving HttpFindListDelete!");
 
-    let parameter: HttpAllDeriveParams = syn::parse2(attribute.tokens.clone()).expect("Invalid http_all attribute!");
-    let HttpAllDeriveParams(query) = parameter;
+    let parameter: HttpFindListDeleteDeriveParams = syn::parse2(attribute.tokens.clone()).expect("Invalid http_find_list_delete attribute!");
+    let HttpFindListDeleteDeriveParams(id, find_query, list_query, delete_query) = parameter;
 
     let name = &ast.ident;
     let gen = quote! {
+        #[derive(Deserialize)]
+        struct ActixRestfulPath {
+            id: #id
+        }
         #[async_trait]
-        impl HttpAll<#query> for #name {
-            async fn http_all(query: web::Query<#query>) -> Result<HttpResponse, HttpResponse>{
+        impl HttpFindListDelete<ActixRestfulPath, #find_query, #list_query, #delete_query> for #name {
+            async fn http_list(query: web::Query<#list_query>) -> Result<HttpResponse, HttpResponse>{
                 let params = query.into_inner();
-                let result = #name::all(&params).await;
+                let result = #name::list(&params).await;
                 match result {
                     Ok(res) => Ok(HttpResponse::Ok().body(serde_json::json!(res))),
                     Err(err) => Err(HttpResponse::InternalServerError().body(err.to_string()))
                 }
             }
-        }
-    };
-    gen.into()
-}
-
-struct HttpFindDeriveParams (syn::Ident, syn::Ident);
-impl syn::parse::Parse for HttpFindDeriveParams {
-    fn parse(input: syn::parse::ParseStream) -> SynResult<Self> {
-        let content;
-        syn::parenthesized!(content in input);
-        let path = content.parse()?;
-        content.parse::<Token![,]>()?;
-        let query = content.parse()?;
-        Ok(HttpFindDeriveParams(path, query))
-    }
-}
-
-#[proc_macro_derive(HttpFind, attributes(http_find))]
-pub fn http_find(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let ast = syn::parse(input).unwrap();
-    impl_http_find_macro(&ast)
-}
-
-fn impl_http_find_macro(ast: &syn::DeriveInput) -> proc_macro::TokenStream {
-    let attribute = ast.attrs.iter().filter(
-        |a| a.path.segments.len() == 1 && a.path.segments[0].ident == "http_find"
-    ).nth(0).expect("http_find attribute required for deriving HttpFind!");
-
-    let parameter: HttpFindDeriveParams = syn::parse2(attribute.tokens.clone()).expect("Invalid http_find attribute!");
-    let HttpFindDeriveParams(path, query) = parameter;
-
-    let name = &ast.ident;
-    let gen = quote! {
-        #[async_trait]
-        impl HttpFind<#path, #query> for #name {
-            async fn http_find(info: web::Path<#path>, query: web::Query<#query>) -> Result<HttpResponse, HttpResponse> {
+            async fn http_find(info: web::Path<ActixRestfulPath>, query: web::Query<#find_query>) -> Result<HttpResponse, HttpResponse> {
                 let params = query.into_inner();
                 let result = #name::find(info.id.into(), &params).await;
                 match result {
@@ -121,46 +97,9 @@ fn impl_http_find_macro(ast: &syn::DeriveInput) -> proc_macro::TokenStream {
                     Err(err) => Err(HttpResponse::NotFound().body("ENTITY_NOT_FOUND"))
                 }
             }
-        }
-    };
-    gen.into()
-}
-
-struct HttpDeleteDeriveParams (syn::Ident, syn::Ident, syn::Ident);
-impl syn::parse::Parse for HttpDeleteDeriveParams {
-    fn parse(input: syn::parse::ParseStream) -> SynResult<Self> {
-        let content;
-        syn::parenthesized!(content in input);
-        let path = content.parse()?;
-        content.parse::<Token![,]>()?;
-        let query = content.parse()?;
-        content.parse::<Token![,]>()?;
-        let find_query = content.parse()?;
-        Ok(HttpDeleteDeriveParams(path, query, find_query))
-    }
-}
-
-#[proc_macro_derive(HttpDelete, attributes(http_delete))]
-pub fn http_delete(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let ast = syn::parse(input).unwrap();
-    impl_http_delete_macro(&ast)
-}
-
-fn impl_http_delete_macro(ast: &syn::DeriveInput) -> proc_macro::TokenStream {
-    let attribute = ast.attrs.iter().filter(
-        |a| a.path.segments.len() == 1 && a.path.segments[0].ident == "http_delete"
-    ).nth(0).expect("http_delete attribute required for deriving HttpDelete!");
-
-    let parameter: HttpDeleteDeriveParams = syn::parse2(attribute.tokens.clone()).expect("Invalid http_delete attribute!");
-    let HttpDeleteDeriveParams(path, query, find_query) = parameter;
-
-    let name = &ast.ident;
-    let gen = quote! {
-        #[async_trait]
-        impl HttpDelete<#path, #query> for #name {
-            async fn http_delete(info: web::Path<#path>, query: web::Query<#query>) -> Result<HttpResponse, HttpResponse> {
+            async fn http_delete(info: web::Path<ActixRestfulPath>, query: web::Query<#delete_query>) -> Result<HttpResponse, HttpResponse> {
                 let params = query.into_inner();
-                let find_params = #find_query { ..Default::default() };
+                let find_params: #find_query = Default::default();
                 let result = #name::find(info.id.into(), &find_params).await;
 
                 match result {
@@ -183,14 +122,14 @@ impl syn::parse::Parse for HttpUpdateDeriveParams {
     fn parse(input: syn::parse::ParseStream) -> SynResult<Self> {
         let content;
         syn::parenthesized!(content in input);
-        let path = content.parse()?;
+        let id = content.parse()?;
         content.parse::<syn::Token![,]>()?;
         let query = content.parse()?;
         content.parse::<syn::Token![,]>()?;
         let output = content.parse()?;
         content.parse::<syn::Token![,]>()?;
         let find_query = content.parse()?;
-        Ok(HttpUpdateDeriveParams(path, query, output, find_query))
+        Ok(HttpUpdateDeriveParams(id, query, output, find_query))
     }
 }
 
@@ -206,16 +145,20 @@ fn impl_http_update_macro(ast: &syn::DeriveInput) -> proc_macro::TokenStream {
     ).nth(0).expect("http_update attribute required for deriving HttpUpdate!");
 
     let parameter: HttpUpdateDeriveParams = syn::parse2(attribute.tokens.clone()).expect("Invalid http_update attribute!");
-    let HttpUpdateDeriveParams(path, query, output, find_query) = parameter;
+    let HttpUpdateDeriveParams(id, query, output, find_query) = parameter;
 
     let name = &ast.ident;
     let gen = quote! {
+        #[derive(Deserialize)]
+        struct ActixRestfulUpdatePath {
+            id: #id
+        }
         #[async_trait]
-        impl HttpUpdate<#path, #query> for #name {
-            async fn http_update(info: web::Path<#path>, payload: web::Json<Box<#name>>, query: web::Query<#query>) -> Result<HttpResponse, HttpResponse> {
+        impl HttpUpdate<ActixRestfulUpdatePath, #query> for #name {
+            async fn http_update(info: web::Path<ActixRestfulUpdatePath>, payload: web::Json<Box<#name>>, query: web::Query<#query>) -> Result<HttpResponse, HttpResponse> {
                 let to_update = payload.into_inner();
                 let params = query.into_inner();
-                let find_params = #find_query { ..Default::default() };
+                let find_params: #find_query = Default::default();
                 let result = #output::find(info.id.into(), &find_params).await;
 
                 match result {
