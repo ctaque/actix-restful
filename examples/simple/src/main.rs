@@ -7,17 +7,21 @@ use anyhow::Result;
 use chrono::prelude::*;
 use async_trait::async_trait;
 use std::default::Default;
-use actix_web::{http, web, HttpResponse};
+use actix_web::{App, web, HttpResponse, HttpServer};
 use serde_json;
 
 
-#[derive(Default)]
+#[derive(Default, Deserialize)]
 struct FindQuery {}
+#[derive(Deserialize)]
 struct AllQuery {}
+#[derive(Deserialize)]
 struct DeleteQuery {}
 type AllResult = Vec<Item>;
 type DeleteResult = Item;
+#[derive(Deserialize)]
 struct SaveQuery {}
+#[derive(Deserialize)]
 struct UpdateQuery {}
 
 
@@ -30,6 +34,7 @@ struct Item {
     content: String,
     deleted_at: Option<DateTime<Utc>>,
     updated_at: Option<DateTime<Utc>>,
+    created_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Serialize, Deserialize, HttpCreate)]
@@ -61,6 +66,7 @@ impl Model<Item, i64, FindQuery, AllQuery, AllResult, DeleteQuery, DeleteResult>
                 content: String::from("test"),
                 deleted_at: None,
                 updated_at: None,
+                created_at: None,
             }
         )
     }
@@ -73,6 +79,7 @@ impl Model<Item, i64, FindQuery, AllQuery, AllResult, DeleteQuery, DeleteResult>
                 content: String::from("test"),
                 deleted_at: None,
                 updated_at: None,
+                created_at: None,
             });
         }
         Ok(res)
@@ -87,11 +94,17 @@ impl Model<Item, i64, FindQuery, AllQuery, AllResult, DeleteQuery, DeleteResult>
 
 
 #[async_trait]
-impl NewModel<NewItem, SaveQuery> for NewItem {
-    async fn save(self: Self, _query: &SaveQuery) -> Result<NewItem> {
-        // persist,
-
-        Ok(self)
+impl NewModel<Item, SaveQuery> for NewItem {
+    async fn save(self: Self, _query: &SaveQuery) -> Result<Item> {
+        // persist, and return Item entity
+        let utc: DateTime<Utc> = Utc::now();
+        Ok(Item{
+            id: 1,
+            content: self.content,
+            created_at: Some(utc),
+            deleted_at: None,
+            updated_at: None,
+        })
     }
 }
 
@@ -106,6 +119,17 @@ impl UpdatableModel<UpdatableItem, UpdateQuery> for UpdatableItem {
     }
 }
 
-fn main() {
-    println!("Hello, world!");
+#[actix_web::main]
+async fn main() -> std::io::Result<()>{
+    HttpServer::new(|| {
+        App::new()
+            .route("/item/{id}", web::get().to(Item::http_find))
+            .route("/item", web::get().to(Item::http_all))
+            .route("/item", web::post().to(NewItem::http_create))
+            .route("/item/{id}", web::delete().to(Item::http_delete))
+            .route("/item/{id}", web::put().to(UpdatableItem::http_update))
+    })
+        .bind(("127.0.0.1", 8080))?
+        .run()
+        .await
 }
