@@ -10,6 +10,7 @@ use std::default::Default;
 use actix_web::{App, web, HttpResponse, HttpServer};
 use serde_json;
 
+struct AppState {}
 #[derive(Default, Deserialize)]
 struct FindQuery {}
 #[derive(Deserialize)]
@@ -25,7 +26,7 @@ struct UpdateQuery {}
 type Id = i64;
 
 #[derive(Default, Serialize, Deserialize, HttpFindListDelete)]
-#[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery)]
+#[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]
 struct Item {
     id: Id,
     content: String,
@@ -35,8 +36,8 @@ struct Item {
 }
 
 #[async_trait]
-impl Model<Id, FindQuery, ListQuery, ListResult, DeleteQuery, DeleteResult> for Item {
-    async fn find(id: Id, _query: &FindQuery) -> Result<Box<Item>> {
+impl Model<Id, FindQuery, ListQuery, ListResult, DeleteQuery, DeleteResult, AppState> for Item {
+    async fn find(id: Id, _query: &FindQuery, _state: &AppState) -> Result<Box<Item>> {
         // fetch from somwhere with id and return result
         Ok(
             Box::new(
@@ -50,7 +51,7 @@ impl Model<Id, FindQuery, ListQuery, ListResult, DeleteQuery, DeleteResult> for 
             )
         )
     }
-    async fn list(_query: &ListQuery) -> Result<ListResult> {
+    async fn list(_query: &ListQuery, _state: &AppState) -> Result<ListResult> {
         // list
         let mut res = Vec::new();
         for i in 0..2{
@@ -64,7 +65,7 @@ impl Model<Id, FindQuery, ListQuery, ListResult, DeleteQuery, DeleteResult> for 
         }
         Ok(res)
     }
-    async fn delete(mut self: Self, _query: &DeleteQuery) -> Result<DeleteResult> {
+    async fn delete(mut self: Self, _query: &DeleteQuery, _state: &AppState) -> Result<DeleteResult> {
         // hard or soft delete
         let utc: DateTime<Utc> = Utc::now();
         self.deleted_at = Some(utc);
@@ -73,13 +74,13 @@ impl Model<Id, FindQuery, ListQuery, ListResult, DeleteQuery, DeleteResult> for 
 }
 
 #[derive(Serialize, Deserialize, HttpCreate)]
-#[http_create(SaveQuery)]
+#[http_create(SaveQuery, AppState)]
 struct NewItem {
     content: String,
 }
 #[async_trait]
-impl NewModel<Item, SaveQuery> for NewItem {
-    async fn save(self: Self, _query: &SaveQuery) -> Result<Item> {
+impl NewModel<Item, SaveQuery, AppState> for NewItem {
+    async fn save(self: Self, _query: &SaveQuery, _state: &AppState) -> Result<Item> {
         // persist, and return Item entity
         let utc: DateTime<Utc> = Utc::now();
         Ok(Item{
@@ -93,15 +94,15 @@ impl NewModel<Item, SaveQuery> for NewItem {
 }
 
 #[derive(Serialize, Deserialize, HttpUpdate)]
-#[http_update(i64, UpdateQuery, Item, FindQuery)]
+#[http_update(i64, UpdateQuery, Item, FindQuery, AppState)]
 struct UpdatableItem {
     id: Id,
     content: String,
     updated_at: Option<DateTime<Utc>>,
 }
 #[async_trait]
-impl UpdatableModel<UpdatableItem, UpdateQuery> for UpdatableItem {
-    async fn update(mut self: Self, _query: &UpdateQuery) -> Result<UpdatableItem> {
+impl UpdatableModel<UpdatableItem, UpdateQuery, AppState> for UpdatableItem {
+    async fn update(mut self: Self, _query: &UpdateQuery, _state: &AppState) -> Result<UpdatableItem> {
         // update in db
         let utc: DateTime<Utc> = Utc::now();
         self.updated_at = Some(utc);
