@@ -31,13 +31,13 @@ fn impl_http_create_macro(ast: &syn::DeriveInput) -> proc_macro::TokenStream {
     let gen = quote! {
         #[async_trait]
         impl HttpCreate<#query, #app_state> for #name {
-            async fn http_create(payload: web::Json<Box<#name>>, query: web::Query<#query>, state: web::Data<#app_state>) -> Result<HttpResponse, HttpResponse>{
+            async fn http_create(payload: actix_web::web::Json<Box<#name>>, query: actix_web::web::Query<#query>, state: actix_web::web::Data<#app_state>) -> Result<actix_web::HttpResponse, actix_web::HttpResponse>{
                 let params = query.into_inner();
                 let to_save = payload.into_inner();
                 let result = to_save.save(&params, &state).await;
                 match result {
-                    Ok(res) => Ok(HttpResponse::Ok().body(serde_json::json!(res))),
-                    Err(err) => Err(HttpResponse::InternalServerError().body(err.to_string()))
+                    Ok(res) => Ok(actix_web::HttpResponse::Ok().body(serde_json::json!(res))),
+                    Err(err) => Err(actix_web::HttpResponse::InternalServerError().body(err.to_string()))
                 }
             }
         }
@@ -86,33 +86,33 @@ fn impl_http_find_list_delete_macro(ast: &syn::DeriveInput) -> proc_macro::Token
         #[async_trait]
         impl HttpFindListDelete<ActixRestfulPath, #find_query, #list_query, #delete_query, #app_state> for #name {
             async fn http_list(
-                query: web::Query<#list_query>,
-                state: web::Data<#app_state>
-            ) -> Result<HttpResponse, HttpResponse>{
+                query: actix_web::web::Query<#list_query>,
+                state: actix_web::web::Data<#app_state>
+            ) -> Result<actix_web::HttpResponse, actix_web::HttpResponse>{
                 let params = query.into_inner();
                 let result = #name::list(&params, &state).await;
                 match result {
-                    Ok(res) => Ok(HttpResponse::Ok().body(serde_json::json!(res))),
-                    Err(err) => Err(HttpResponse::InternalServerError().body(err.to_string()))
+                    Ok(res) => Ok(actix_web::HttpResponse::Ok().body(serde_json::json!(res))),
+                    Err(err) => Err(actix_web::HttpResponse::InternalServerError().body(err.to_string()))
                 }
             }
             async fn http_find(
-                info: web::Path<ActixRestfulPath>,
-                query: web::Query<#find_query>,
-                state: web::Data<#app_state>
-            ) -> Result<HttpResponse, HttpResponse> {
+                info: actix_web::web::Path<ActixRestfulPath>,
+                query: actix_web::web::Query<#find_query>,
+                state: actix_web::web::Data<#app_state>
+            ) -> Result<actix_web::HttpResponse, actix_web::HttpResponse> {
                 let params = query.into_inner();
                 let result = #name::find(info.id.into(), &params, &state).await;
                 match result {
-                    Ok(res) => Ok(HttpResponse::Ok().body(serde_json::json!(res))),
-                    Err(err) => Err(HttpResponse::NotFound().body("ENTITY_NOT_FOUND"))
+                    Ok(res) => Ok(actix_web::HttpResponse::Ok().body(serde_json::json!(res))),
+                    Err(err) => Err(actix_web::HttpResponse::NotFound().body("ENTITY_NOT_FOUND"))
                 }
             }
             async fn http_delete(
-                info: web::Path<ActixRestfulPath>,
-                query: web::Query<#delete_query>,
-                state: web::Data<#app_state>
-            ) -> Result<HttpResponse, HttpResponse> {
+                info: actix_web::web::Path<ActixRestfulPath>,
+                query: actix_web::web::Query<#delete_query>,
+                state: actix_web::web::Data<#app_state>
+            ) -> Result<actix_web::HttpResponse, actix_web::HttpResponse> {
                 let params = query.into_inner();
                 let find_params: #find_query = Default::default();
                 let result = #name::find(info.id.into(), &find_params, &state).await;
@@ -120,11 +120,11 @@ fn impl_http_find_list_delete_macro(ast: &syn::DeriveInput) -> proc_macro::Token
                 match result {
                     Ok(entity) => {
                         match entity.delete(&params, &state).await {
-                            Ok(e) => Ok(HttpResponse::Ok().body(serde_json::json!(e))),
-                            Err(err) => Err(HttpResponse::InternalServerError().body(err.to_string()))
+                            Ok(e) => Ok(actix_web::HttpResponse::Ok().body(serde_json::json!(e))),
+                            Err(err) => Err(actix_web::HttpResponse::InternalServerError().body(err.to_string()))
                         }
                     }
-                    Err(err) => Err(HttpResponse::NotFound().body("ENTITY_NOT_FOUND"))
+                    Err(err) => Err(actix_web::HttpResponse::NotFound().body("ENTITY_NOT_FOUND"))
                 }
             }
         }
@@ -173,11 +173,11 @@ fn impl_http_update_macro(ast: &syn::DeriveInput) -> proc_macro::TokenStream {
         #[async_trait]
         impl HttpUpdate<ActixRestfulUpdatePath, #query, #app_state> for #name {
             async fn http_update(
-                info: web::Path<ActixRestfulUpdatePath>,
-                payload: web::Json<Box<#name>>,
-                query: web::Query<#query>,
-                state: web::Data<#app_state>
-            ) -> Result<HttpResponse, HttpResponse> {
+                info: actix_web::web::Path<ActixRestfulUpdatePath>,
+                payload: actix_web::web::Json<Box<#name>>,
+                query: actix_web::web::Query<#query>,
+                state: actix_web::web::Data<#app_state>
+            ) -> Result<actix_web::HttpResponse, actix_web::HttpResponse> {
                 let to_update = payload.into_inner();
                 let params = query.into_inner();
                 let find_params: #find_query = Default::default();
@@ -186,11 +186,11 @@ fn impl_http_update_macro(ast: &syn::DeriveInput) -> proc_macro::TokenStream {
                 match result {
                     Ok(entity) => {
                         match to_update.update(&params, &state).await {
-                            Ok(e) => Ok(HttpResponse::Ok().body(serde_json::json!(e))),
-                            Err(err) => Err(HttpResponse::InternalServerError().body(err.to_string()))
+                            Ok(e) => Ok(actix_web::HttpResponse::Ok().body(serde_json::json!(e))),
+                            Err(err) => Err(actix_web::HttpResponse::InternalServerError().body(err.to_string()))
                         }
                     }
-                    Err(err) => Err(HttpResponse::NotFound().body("ENTITY_NOT_FOUND"))
+                    Err(err) => Err(actix_web::HttpResponse::NotFound().body("ENTITY_NOT_FOUND"))
                 }
             }
         }
