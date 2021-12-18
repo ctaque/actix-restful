@@ -1,4 +1,5 @@
 * TODO
-* Add AppState to handlers
+* DONE Add AppState to handlers
+  CLOSED: [2021-12-18 sam. 21:25]
 * Documentation
 * Examples with pagination, query string
