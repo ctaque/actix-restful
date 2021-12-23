@@ -5,7 +5,8 @@ use actix_restful::{
     HttpUpdate,
     Model,
     NewModel,
-    UpdatableModel
+    UpdatableModel,
+    gen_endpoint
 };
 use actix_restful_derive::{HttpCreate, HttpFindListDelete, HttpUpdate};
 use anyhow::Result;
@@ -120,11 +121,8 @@ impl UpdatableModel<UpdatableItem, UpdateQuery, AppState> for UpdatableItem {
 async fn main() -> std::io::Result<()>{
     actix_web::HttpServer::new(|| {
         actix_web::App::new()
-            .route("/item/{id}", actix_web::web::get().to(Item::http_find))
-            .route("/item", actix_web::web::get().to(Item::http_list))
-            .route("/item", actix_web::web::post().to(NewItem::http_create))
-            .route("/item/{id}", actix_web::web::delete().to(Item::http_delete))
-            .route("/item/{id}", actix_web::web::put().to(UpdatableItem::http_update))
+            .configure(gen_endpoint!(Item, NewItem, UpdatableItem))
+            .data(AppState{})
     })
         .bind(("127.0.0.1", 8080))?
         .run()
