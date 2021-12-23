@@ -100,7 +100,7 @@ impl NewModel<Item, SaveQuery, AppState> for NewItem {
 }
 
 #[derive(Serialize, Deserialize, HttpUpdate)]
-#[http_update(i64, UpdateQuery, Item, FindQuery, AppState)]
+#[http_update(Id, UpdateQuery, Item, FindQuery, AppState)]
 struct UpdatableItem {
     id: Id,
     content: String,
