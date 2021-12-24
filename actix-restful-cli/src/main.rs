@@ -24,7 +24,6 @@ fn main() -> Result<(), Error> {
         Model,
         NewModel,
         UpdatableModel,
-        gen_endpoint
     };
     use actix_restful_derive::{HttpCreate, HttpFindListDelete, HttpUpdate};
     use anyhow::Result;
@@ -32,8 +31,6 @@ fn main() -> Result<(), Error> {
     use std::default::Default;
     use actix_web;
     use serde_json;
-    
-    use chrono::prelude::*;
     
     #[derive(Default, Deserialize)]
     struct FindQuery {}
