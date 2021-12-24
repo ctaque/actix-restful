@@ -124,7 +124,7 @@ async fn main() -> std::io::Result<()>{
             .configure(gen_endpoint!(Item, NewItem, UpdatableItem))
             .data(AppState{})
     })
-        .bind(("127.0.0.1", 8080))?
+        .bind(("127.0.0.1", 8085))?
         .run()
         .await
 }
