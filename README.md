@@ -53,3 +53,9 @@ this macro will generate 5 endpoints :
 - PUT /project/{id}
 - DELETE /project/{id}
 - POST /project
+
+
+#### Examples :
+
+Look into folder examples
+The examples have a file called Insomnia.json which is a routing configuration file for [insomnia](https://insomnia.rest/)
