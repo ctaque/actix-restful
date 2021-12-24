@@ -121,7 +121,7 @@ impl UpdatableModel<UpdatableItem, UpdateQuery, AppState> for UpdatableItem {
 async fn main() -> std::io::Result<()>{
     actix_web::HttpServer::new(|| {
         actix_web::App::new()
-            .configure(gen_endpoint!(Item, NewItem, UpdatableItem))
+            .configure(gen_endpoint!("item", Item, NewItem, UpdatableItem))
             .data(AppState{})
     })
         .bind(("127.0.0.1", 8085))?
