@@ -40,15 +40,15 @@ pub trait HttpUpdate<P, Q, AppState> {
 
 #[macro_export]
 macro_rules! gen_endpoint {
-    ($model:ident, $new_model:ident, $updatable_model:ident) => {
+    ($entity:expr, $model:ident, $new_model:ident, $updatable_model:ident) => {
         {
             use actix_web::web;
             move | cfg: &mut web::ServiceConfig | {
-                cfg.route("/item/{id}", web::get().to($model::http_find))
-                    .route("/item/{id}", web::delete().to($model::http_delete))
-                    .route("/item/{id}", web::put().to($updatable_model::http_update))
-                    .route("/item", web::get().to($model::http_list))
-                    .route("/item", web::post().to($new_model::http_create));
+                cfg.route("/{entity}/{id}".replace("{entity}", $entity).as_str(), web::get().to($model::http_find))
+                    .route("/{entity}/{id}".replace("{entity}", $entity).as_str(), web::delete().to($model::http_delete))
+                    .route("/{entity}/{id}".replace("{entity}", $entity).as_str(), web::put().to($updatable_model::http_update))
+                    .route("/{entity}".replace("{entity}", $entity).as_str(), web::get().to($model::http_list))
+                    .route("/{entity}".replace("{entity}", $entity).as_str(), web::post().to($new_model::http_create));
             }
         }
     };
