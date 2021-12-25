@@ -20,7 +20,7 @@ generate base models :
 ``` bash
 # generate a base model of name Project.rs at path ./Project.rs
 
-actix-restful generate-model --entity Project
+actix-restful generate-model --name Project
 
 ```
 
@@ -30,13 +30,15 @@ actix-restful generate-model --entity Project
 
 use actix_restful::gen_endpoint;
 use models::{ Project, NewProject, UpdatableProject };
+use actix_web::web;
+use actix_restful::gen_endpoint;
 
 struct AppState{};
 
 async fn main() -> std::io::Result<()>{
     actix_web::HttpServer::new(|| {
         actix_web::App::new()
-            .configure(gen_endpoint!("project", Project, NewProject, UpdatableProject))
+            .service(web::scope(Project::scope()).configure(gen_endpoint!(Project, NewProject, UpdatableProject)))
             .data(AppState{})
     })
         .bind(("127.0.0.1", 8085))?
@@ -48,14 +50,15 @@ async fn main() -> std::io::Result<()>{
 
 this macro will generate 5 endpoints :
 
-- GET /project/{id}
-- GET /project
-- PUT /project/{id}
-- DELETE /project/{id}
-- POST /project
+- GET /v1/project/{id}
+- GET /v1/project
+- PUT /v1/project/{id}
+- DELETE /v1/project/{id}
+- POST /v1/project
 
 
 #### Examples :
 
 Look into folder examples
+
 The examples have a file called Insomnia.json which is a routing configuration file for [insomnia](https://insomnia.rest/)

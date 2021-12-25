@@ -6,15 +6,15 @@ use actix_restful::{
     Model,
     NewModel,
     UpdatableModel,
-    gen_endpoint
+    gen_endpoint,
+    RestfulPathInfo
 };
-use actix_restful_derive::{HttpCreate, HttpFindListDelete, HttpUpdate};
+use actix_restful_derive::{HttpCreate, HttpFindListDelete, HttpUpdate, actix_restful_info};
 use anyhow::Result;
 use async_trait::async_trait;
 use std::default::Default;
 use actix_web;
 use serde_json;
-
 use chrono::prelude::*;
 
 struct AppState {}
@@ -34,6 +34,7 @@ type Id = i64;
 
 #[derive(Default, Serialize, Deserialize, HttpFindListDelete)]
 #[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]
+#[actix_restful_info(scope = "/v1", path = "item")]
 struct Item {
     id: Id,
     content: String,
@@ -121,7 +122,7 @@ impl UpdatableModel<UpdatableItem, UpdateQuery, AppState> for UpdatableItem {
 async fn main() -> std::io::Result<()>{
     actix_web::HttpServer::new(|| {
         actix_web::App::new()
-            .configure(gen_endpoint!("item", Item, NewItem, UpdatableItem))
+            .service(actix_web::web::scope(Item::scope()).configure(gen_endpoint!(Item, NewItem, UpdatableItem)))
             .data(AppState{})
     })
         .bind(("127.0.0.1", 8085))?
