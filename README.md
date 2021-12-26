@@ -31,7 +31,6 @@ actix-restful generate-model --name Project
 use actix_restful::gen_endpoint;
 use models::{ Project, NewProject, UpdatableProject };
 use actix_web::web;
-use actix_restful::gen_endpoint;
 
 struct AppState{};
 
