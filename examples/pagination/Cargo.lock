@@ -1094,6 +1094,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "624a8340c38c1b80fd549087862da4ba43e08858af025b236e509b6649fc13d5"
 
 [[package]]
+name = "pagination"
+version = "0.1.0"
+dependencies = [
+ "actix-restful",
+ "actix-restful-derive",
+ "actix-web",
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "parking_lot"
 version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1453,20 +1467,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e51e73328dc4ac0c7ccbda3a494dfa03df1de2f46018127f60c693f2648455b0"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "simple"
-version = "0.1.0"
-dependencies = [
- "actix-restful",
- "actix-restful-derive",
- "actix-web",
- "anyhow",
- "async-trait",
- "chrono",
- "serde",
- "serde_json",
 ]
 
 [[package]]

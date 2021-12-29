@@ -36,19 +36,23 @@ pub trait HttpUpdate<P, Q, AppState> {
     async fn http_update(info: web::Path<P>, payload: web::Json<Box<Self>>, query: web::Query<Q>, app_state: web::Data<AppState>) -> Result<HttpResponse, HttpResponse>;
 }
 
-
+pub trait RestfulPathInfo {
+    fn path () -> String;
+    fn scope () -> &'static str;
+}
 
 #[macro_export]
 macro_rules! gen_endpoint {
-    ($entity:expr, $model:ident, $new_model:ident, $updatable_model:ident) => {
+    ($model:ident, $new_model:ident, $updatable_model:ident) => {
         {
+            let path = $model::path();
             use actix_web::web;
             move | cfg: &mut web::ServiceConfig | {
-                cfg.route("/{entity}/{id}".replace("{entity}", $entity).as_str(), web::get().to($model::http_find))
-                    .route("/{entity}/{id}".replace("{entity}", $entity).as_str(), web::delete().to($model::http_delete))
-                    .route("/{entity}/{id}".replace("{entity}", $entity).as_str(), web::put().to($updatable_model::http_update))
-                    .route("/{entity}".replace("{entity}", $entity).as_str(), web::get().to($model::http_list))
-                    .route("/{entity}".replace("{entity}", $entity).as_str(), web::post().to($new_model::http_create));
+                cfg.route("/{path}/{id}".replace("{path}", &path).as_str(), web::get().to($model::http_find))
+                    .route("/{path}/{id}".replace("{path}", &path).as_str(), web::delete().to($model::http_delete))
+                    .route("/{path}/{id}".replace("{path}", &path).as_str(), web::put().to($updatable_model::http_update))
+                    .route("/{path}".replace("{path}", &path).as_str(), web::get().to($model::http_list))
+                    .route("/{path}".replace("{path}", &path).as_str(), web::post().to($new_model::http_create));
             }
         }
     };

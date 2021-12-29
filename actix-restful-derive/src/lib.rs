@@ -1,6 +1,7 @@
 extern crate proc_macro;
-use quote::quote;
-use syn::{ self, Result as SynResult, Token};
+use darling::FromMeta;
+use quote::{quote, ToTokens};
+use syn::{ self, Result as SynResult, AttributeArgs, Token, parse_macro_input };
 
 struct HttpCreateDeriveParams (syn::Ident, syn::Ident);
 impl syn::parse::Parse for HttpCreateDeriveParams {
@@ -50,7 +51,6 @@ impl syn::parse::Parse for HttpFindListDeleteDeriveParams {
     fn parse(input: syn::parse::ParseStream) -> SynResult<Self> {
         let content;
         syn::parenthesized!(content in input);
-
         let id = content.parse()?;
         content.parse::<Token![,]>()?;
         let find_query = content.parse()?;
@@ -63,6 +63,50 @@ impl syn::parse::Parse for HttpFindListDeleteDeriveParams {
         Ok(HttpFindListDeleteDeriveParams(id, find_query, list_query, delete_query, app_state))
     }
 }
+
+
+#[derive(Debug, FromMeta)]
+struct RestfulInfo {
+    pub scope: String,
+    pub path: String,
+}
+
+impl ToTokens for RestfulInfo {
+    fn to_tokens(&self, _tokens: &mut proc_macro2::TokenStream) {
+        ()
+    }
+}
+
+#[proc_macro_attribute]
+pub fn actix_restful_info(args: proc_macro::TokenStream, input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let attrs_args = parse_macro_input!(args as AttributeArgs);
+    let ast: syn::DeriveInput = syn::parse(input.clone()).unwrap();
+
+    let args_tokens = match RestfulInfo::from_list(&attrs_args) {
+        Ok(v) => v,
+        Err(e) => { return proc_macro::TokenStream::from(e.write_errors()); }
+    };
+    let name  = ast.ident;
+    let path =args_tokens.path;
+    let scope = args_tokens.scope;
+    let gen = quote! {
+        impl RestfulPathInfo for #name {
+            fn path() -> String  {
+                let p = #path;
+                let p = p.to_string();
+                p
+            }
+            fn scope() -> &'static str {
+                let p = #scope;
+                p
+            }
+        }
+    };
+    let mut out:proc_macro::TokenStream = gen.into();
+    out.extend::<proc_macro::TokenStream>(input);
+    out
+}
+
 #[proc_macro_derive(HttpFindListDelete, attributes(http_find_list_delete))]
 pub fn http_find_list_delete(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let ast = syn::parse(input).unwrap();

@@ -7,8 +7,8 @@ use std::io::{Write, Error};
 pub enum Opt {
     #[structopt(name = "generate-model")]
     GenerateModel {
-        #[structopt(short = "e", long = "entity")]
-        entity: String,
+        #[structopt(short = "n", long = "name")]
+        name: String,
     }
 }
 
@@ -24,8 +24,10 @@ fn main() -> Result<(), Error> {
         Model,
         NewModel,
         UpdatableModel,
+        RestfulPathInfo
     };
-    use actix_restful_derive::{HttpCreate, HttpFindListDelete, HttpUpdate};
+    use actix_restful_derive::{HttpCreate, HttpFindListDelete, HttpUpdate, actix_restful_info};
+
     use anyhow::Result;
     use async_trait::async_trait;
     use std::default::Default;
@@ -48,6 +50,7 @@ fn main() -> Result<(), Error> {
     
     #[derive(Default, Serialize, Deserialize, HttpFindListDelete)]
     #[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]
+    #[actix_restful_info(scope = "/v1", path = "{entity_lower_case}")]
     struct {entity} {
         id: Id,
     }
@@ -68,7 +71,7 @@ fn main() -> Result<(), Error> {
     #[derive(Serialize, Deserialize, HttpCreate)]
     #[http_create(SaveQuery, AppState)]
     struct New{entity} {
-        content: String,
+
     }
     #[async_trait]
     impl NewModel<{entity}, SaveQuery, AppState> for New{entity} {
@@ -90,10 +93,11 @@ fn main() -> Result<(), Error> {
     }
     "#;
     match opt {
-        Opt::GenerateModel { entity } => {
-            let to_write = model_tpl.replace("{entity}", &entity);
+        Opt::GenerateModel { name } => {
+            let to_write = model_tpl.replace("{entity}", &name)
+                .replace("{entity_lower_case}", &name.to_lowercase());
             let mut path = String::from("");
-            path.push_str(&entity);
+            path.push_str(&name);
             path.push_str(".rs");
             let mut output = File::create(path.clone())?;
             write!(output, "{}", to_write)?;

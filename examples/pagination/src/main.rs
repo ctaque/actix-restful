@@ -21,10 +21,18 @@ struct AppState {}
 #[derive(Default, Deserialize)]
 struct FindQuery {}
 #[derive(Deserialize)]
-struct ListQuery {}
+struct ListQuery {
+    offset: usize,
+    limit: usize,
+}
 #[derive(Deserialize)]
 struct DeleteQuery {}
-type ListResult = Vec<Item>;
+#[derive(Serialize)]
+struct ListResult{
+    limit: usize,
+    offset: usize,
+    results: Vec<Item>
+}
 type DeleteResult = Item;
 #[derive(Deserialize)]
 struct SaveQuery {}
@@ -59,10 +67,10 @@ impl Model<Id, FindQuery, ListQuery, ListResult, DeleteQuery, DeleteResult, AppS
             )
         )
     }
-    async fn list(_query: &ListQuery, _state: &AppState) -> Result<ListResult> {
+    async fn list(query: &ListQuery, _state: &AppState) -> Result<ListResult> {
         // list
         let mut res = Vec::new();
-        for i in 0..2{
+        for i in 1..500{
             res.push(Item {
                 id: i,
                 content: String::from("test"),
@@ -71,7 +79,13 @@ impl Model<Id, FindQuery, ListQuery, ListResult, DeleteQuery, DeleteResult, AppS
                 created_at: None,
             });
         }
-        Ok(res)
+        let paginated: Vec<Item> = res.into_iter().skip(query.offset).take(query.limit).collect();
+        let output = ListResult {
+            limit: query.limit,
+            offset: query.offset,
+            results: paginated
+        };
+        Ok(output)
     }
     async fn delete(mut self: Self, _query: &DeleteQuery, _state: &AppState) -> Result<DeleteResult> {
         // hard or soft delete
