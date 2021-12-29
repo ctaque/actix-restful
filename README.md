@@ -13,22 +13,53 @@ This workspace contains :
 - Derive macros to implement on models,
 - A function macro to configure routes on the actix server
 
-#### actix-restful-cli
+#### Declare Models
 
-generate base models :
+``` rust
+// src/models/Project.rs
 
-``` bash
-# generate a base model of name Project.rs at path ./Project.rs
+struct AppState {}
+#[derive(Default, Deserialize)]
+struct FindQuery {}
+#[derive(Deserialize)]
+struct ListQuery {}
+#[derive(Deserialize)]
+struct DeleteQuery {}
+type ListResult = Vec<Item>;
+type DeleteResult = Item;
+type Id = i64;
 
-actix-restful generate-model --name Project
+#[derive(Default, Serialize, Deserialize, HttpFindListDelete)]
+#[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]
+#[actix_restful_info(scope = "/v1", path = "item")]
+struct Project {
+    ...
+}
 
+#[derive(Deserialize)]
+struct SaveQuery {}
+
+#[derive(Serialize, Deserialize, HttpCreate)]
+#[http_create(SaveQuery, AppState)]
+struct NewProject {
+    ...
+}
+
+#[derive(Deserialize)]
+struct UpdateQuery {}
+
+#[derive(Serialize, Deserialize, HttpUpdate)]
+#[http_update(Id, UpdateQuery, Item, FindQuery, AppState)]
+struct UpdatableProject {
+    ...
+}
 ```
 
 #### Implement the traits methods on the models : 
 
 ``` rust
 
-// models/Project.rs
+// src/models/Project.rs
 
 #[async_trait]
 impl Model<Id, FindQuery, ListQuery, ListResult, DeleteQuery, DeleteResult, AppState> for Project {
@@ -64,6 +95,7 @@ impl UpdatableModel<UpdatableItem, UpdateQuery, AppState> for UpdatableProject {
 #### configures Restful routes with the function macro gen_endpoint!
 
 ``` rust
+// src/main.rs
 
 use actix_restful::gen_endpoint;
 use models::{ Project, NewProject, UpdatableProject };
@@ -92,6 +124,17 @@ this macro will generate 5 endpoints :
 - DELETE /v1/project/{id}
 - POST /v1/project
 
+#### actix-restful-cli
+
+Alternatively, if you want to avoid writing a lot of boilerplate code, you can use the model generator :
+
+``` bash
+
+actix-restful generate-model --name Project
+
+```
+
+This wil generate a base model of name Project.rs at path ./Project.rs
 
 #### Examples :
 
