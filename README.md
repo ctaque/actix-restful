@@ -24,6 +24,43 @@ actix-restful generate-model --name Project
 
 ```
 
+#### Implement the traits methods on the models : 
+
+``` rust
+
+// models/Project.rs
+
+#[async_trait]
+impl Model<Id, FindQuery, ListQuery, ListResult, DeleteQuery, DeleteResult, AppState> for Project {
+    async fn find(id: Id, _query: &FindQuery, _state: &AppState) -> Result<Box<Item>> {
+        // fetch from somwhere with id and return result
+    }
+    async fn list(_query: &ListQuery, _state: &AppState) -> Result<ListResult> {
+        // list
+    }
+    async fn delete(mut self: Self, _query: &DeleteQuery, _state: &AppState) -> Result<DeleteResult> {
+        // hard or soft delete
+    }
+}
+
+
+#[async_trait]
+impl NewModel<Project, SaveQuery, AppState> for NewProject {
+    async fn save(self: Self, _query: &SaveQuery, _state: &AppState) -> Result<Project> {
+        // persist, and return Item entity
+    }
+}
+
+#[async_trait]
+impl UpdatableModel<UpdatableItem, UpdateQuery, AppState> for UpdatableProject {
+    async fn update(mut self: Self, _query: &UpdateQuery, _state: &AppState) -> Result<UpdatableItem> {
+        // update in db
+    }
+}
+```
+
+`
+
 #### configures Restful routes with the function macro gen_endpoint!
 
 ``` rust
