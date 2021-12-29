@@ -18,7 +18,10 @@ This workspace contains :
 ``` rust
 // src/models/Project.rs
 
+// actix [App State](https://actix.rs/docs/application/)
 struct AppState {}
+
+
 #[derive(Default, Deserialize)]
 struct FindQuery {}
 #[derive(Deserialize)]
@@ -98,10 +101,8 @@ impl UpdatableModel<UpdatableItem, UpdateQuery, AppState> for UpdatableProject {
 // src/main.rs
 
 use actix_restful::gen_endpoint;
-use models::{ Project, NewProject, UpdatableProject };
+use models::{ Project, NewProject, UpdatableProject, AppState };
 use actix_web::web;
-
-struct AppState{};
 
 async fn main() -> std::io::Result<()>{
     actix_web::HttpServer::new(|| {
