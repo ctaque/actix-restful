@@ -18,7 +18,7 @@ This workspace contains :
 ``` rust
 // src/models/Project.rs
 
-// actix [App State](https://actix.rs/docs/application/)
+// actix App State (https://actix.rs/docs/application/)
 struct AppState {}
 
 
