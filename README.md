@@ -30,13 +30,13 @@ struct FindQuery {}
 struct ListQuery {}
 #[derive(Deserialize)]
 struct DeleteQuery {}
-type ListResult = Vec<Item>;
-type DeleteResult = Item;
+type ListResult = Vec<Project>;
+type DeleteResult = Project;
 type Id = i64;
 
 #[derive(Default, Serialize, Deserialize, HttpFindListDelete)]
 #[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]
-#[actix_restful_info(scope = "/v1", path = "item")]
+#[actix_restful_info(scope = "/v1", path = "project")]
 struct Project {
     ...
 }
@@ -54,7 +54,7 @@ struct NewProject {
 struct UpdateQuery {}
 
 #[derive(Serialize, Deserialize, HttpUpdate)]
-#[http_update(Id, UpdateQuery, Item, FindQuery, AppState)]
+#[http_update(Id, UpdateQuery, Project, FindQuery, AppState)]
 struct UpdatableProject {
     ...
 }
@@ -68,7 +68,7 @@ struct UpdatableProject {
 
 #[async_trait]
 impl Model<Id, FindQuery, ListQuery, ListResult, DeleteQuery, DeleteResult, AppState> for Project {
-    async fn find(id: Id, _query: &FindQuery, _state: &AppState) -> Result<Box<Item>> {
+    async fn find(id: Id, _query: &FindQuery, _state: &AppState) -> Result<Box<Project>> {
         // fetch from somwhere with id and return result
     }
     async fn list(_query: &ListQuery, _state: &AppState) -> Result<ListResult> {
@@ -81,15 +81,17 @@ impl Model<Id, FindQuery, ListQuery, ListResult, DeleteQuery, DeleteResult, AppS
 
 
 #[async_trait]
+// below, the Project type variable Project is the inner return type of the save function
 impl NewModel<Project, SaveQuery, AppState> for NewProject {
     async fn save(self: Self, _query: &SaveQuery, _state: &AppState) -> Result<Project> {
-        // persist, and return Item entity
+        // persist, and return Project entity
     }
 }
 
 #[async_trait]
-impl UpdatableModel<UpdatableItem, UpdateQuery, AppState> for UpdatableProject {
-    async fn update(mut self: Self, _query: &UpdateQuery, _state: &AppState) -> Result<UpdatableItem> {
+// below, the type variable UpdatableProject is the inner return type of the update function.
+impl UpdatableModel<UpdatableProject, UpdateQuery, AppState> for UpdatableProject {
+    async fn update(mut self: Self, _query: &UpdateQuery, _state: &AppState) -> Result<UpdatableProject> {
         // update in db
     }
 }
@@ -119,7 +121,7 @@ async fn main() -> std::io::Result<()>{
 
 ```
 
-this macro will generate 5 endpoints :
+The macro gen_endpoint! will generate 5 routes :
 
 - GET /v1/project/{id}
 - GET /v1/project
