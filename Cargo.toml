@@ -2,10 +2,5 @@
 
 members = [
     "actix-restful",
-    "actix-restful-derive",
-    "actix-restful-cli"
-]
-
-exclude = [
-    "examples"
+    "actix-restful-derive"
 ]
