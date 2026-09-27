@@ -1,12 +1,12 @@
 [package]
 name = "actix-restful"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-actix-web = "4"
-anyhow = "1.0.51"
-async-trait = "0.1.52"
-serde_json = "1.0.73"
+actix-web.workspace = true
+anyhow.workspace = true
+async-trait.workspace = true
+serde_json.workspace = true
