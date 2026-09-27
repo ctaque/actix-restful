@@ -1,0 +1,82 @@
+[
+  {
+    "v": 1,
+    "name": "actix-restful-pagination",
+    "folders": [],
+    "requests": [
+      {
+        "v": "1",
+        "name": "item",
+        "method": "POST",
+        "endpoint": "http://127.0.0.1:8085/v1/item",
+        "params": [],
+        "headers": [
+          { "key": "Content-Type", "value": "application/json", "active": true }
+        ],
+        "auth": { "authType": "none", "authActive": true },
+        "preRequestScript": "",
+        "testScript": "",
+        "body": {
+          "contentType": "application/json",
+          "body": "{\n\t\"content\": \"content\"\n}"
+        }
+      },
+      {
+        "v": "1",
+        "name": "item/{id}",
+        "method": "PUT",
+        "endpoint": "http://127.0.0.1:8085/v1/item/1",
+        "params": [],
+        "headers": [
+          { "key": "Content-Type", "value": "application/json", "active": true }
+        ],
+        "auth": { "authType": "none", "authActive": true },
+        "preRequestScript": "",
+        "testScript": "",
+        "body": {
+          "contentType": "application/json",
+          "body": "{\n\t\"id\": 1,\n\t\"content\": \"new content\"\n}"
+        }
+      },
+      {
+        "v": "1",
+        "name": "item/{id}",
+        "method": "DELETE",
+        "endpoint": "http://127.0.0.1:8085/v1/item/1",
+        "params": [],
+        "headers": [],
+        "auth": { "authType": "none", "authActive": true },
+        "preRequestScript": "",
+        "testScript": "",
+        "body": { "contentType": null, "body": null }
+      },
+      {
+        "v": "1",
+        "name": "item/{id}",
+        "method": "GET",
+        "endpoint": "http://127.0.0.1:8085/v1/item/1",
+        "params": [],
+        "headers": [],
+        "auth": { "authType": "none", "authActive": true },
+        "preRequestScript": "",
+        "testScript": "",
+        "body": { "contentType": null, "body": null }
+      },
+      {
+        "v": "1",
+        "name": "pagination",
+        "method": "GET",
+        "endpoint": "http://127.0.0.1:8085/v1/item",
+        "params": [
+          { "key": "limit", "value": "5", "active": true },
+          { "key": "offset", "value": "20", "active": true }
+        ],
+        "headers": [],
+        "auth": { "authType": "none", "authActive": true },
+        "preRequestScript": "",
+        "testScript": "",
+        "body": { "contentType": null, "body": null }
+      }
+    ]
+  }
+]
