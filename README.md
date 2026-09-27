@@ -18,6 +18,7 @@ This workspace contains :
 ### Note in code version
 
 use version 0.1.x for actix-web v3
+
 use version 0.2.x for actix web v4
 
 #### Declare Models
