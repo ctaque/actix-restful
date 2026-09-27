@@ -1,6 +1,6 @@
 //!
 //! # Example of use :
-//! ```
+//! ```no_run
 //!use serde::{Serialize, Deserialize};
 //!use actix_restful::{
 //!     HttpCreate,
@@ -140,7 +140,7 @@ use async_trait::async_trait;
 
 /// A trait to implement on your main struct entity via the HttpFindListDelete derive macro :
 ///
-/// ```
+/// ```ignore
 ///
 /// use actix_restful::{
 ///  HttpFindListDelete,
@@ -176,7 +176,7 @@ pub trait Model<ID, FQ, LQ, LR, DQ, DR, AppState> {
 
 /// A trait to implement on your creatable entity entity
 ///
-/// ```
+/// ```ignore
 ///
 /// use actix_restful::{
 ///  HttpCreate,
@@ -204,7 +204,7 @@ pub trait NewModel<T, Q, AppState> {
 
 /// A trait to implement on your Updatable entity
 ///
-/// ```
+/// ```ignore
 ///
 /// use actix_restful::{
 ///  HttpUpdate,
@@ -285,7 +285,7 @@ pub trait RestfulPathInfo {
 
 /// A macro to generate the http routes on the Actix app :
 ///
-/// ```
+/// ```ignore
 ///
 /// #[actix_web::main]
 /// async fn main() -> std::io::Result<()>{

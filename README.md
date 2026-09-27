@@ -134,6 +134,8 @@ The macro gen_endpoint! will generate 5 routes :
 - DELETE /v1/project/{id}
 - POST /v1/project
 
+If the updatable struct has an `id` field, `PUT /v1/project/{id}` answers `400 ID_MISMATCH` when the payload `id` differs from the path `{id}`.
+
 #### actix-restful-cli
 
 Alternatively, if you want to avoid writing a lot of boilerplate code, you can use the model generator :

@@ -73,9 +73,12 @@ dependencies = [
 name = "actix-restful"
 version = "0.2.0"
 dependencies = [
+ "actix-restful-derive",
  "actix-web",
  "anyhow",
  "async-trait",
+ "chrono",
+ "serde",
  "serde_json",
 ]
 

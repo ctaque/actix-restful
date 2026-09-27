@@ -10,3 +10,8 @@ actix-web.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 serde_json.workspace = true
+
+[dev-dependencies]
+actix-restful-derive.workspace = true
+chrono.workspace = true
+serde.workspace = true
