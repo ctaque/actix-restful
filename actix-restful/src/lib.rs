@@ -126,7 +126,7 @@
 //!     actix_web::HttpServer::new(|| {
 //!         actix_web::App::new()
 //!         .service(actix_web::web::scope(Item::scope()).configure(gen_endpoint!(Item, NewItem, UpdatableItem)))
-//!         .data(AppState{})
+//!         .app_data(actix_web::web::Data::new(AppState{}))
 //!     })
 //!     .bind(("127.0.0.1", 8085))?
 //!     .run()
@@ -239,7 +239,7 @@ pub trait HttpCreate<Q, AppState> {
         payload: web::Json<Box<Self>>,
         query: web::Query<Q>,
         app_state: web::Data<AppState>,
-    ) -> Result<HttpResponse, HttpResponse>;
+    ) -> HttpResponse;
 }
 
 /// This Trait is automatically implemented with the `actix_restful_derive::HttpFindListDelete` derive macro
@@ -251,18 +251,18 @@ pub trait HttpFindListDelete<P, FQ, LQ, DQ, AppState> {
         info: web::Path<P>,
         query: web::Query<FQ>,
         app_state: web::Data<AppState>,
-    ) -> Result<HttpResponse, HttpResponse>;
+    ) -> HttpResponse;
     /// This method is automatically implemented with the `actix_restful_derive::HttpFindListDelete` derive macro
     async fn http_list(
         query: web::Query<LQ>,
         app_state: web::Data<AppState>,
-    ) -> Result<HttpResponse, HttpResponse>;
+    ) -> HttpResponse;
     /// This method is automatically implemented with the `actix_restful_derive::HttpFindListDelete` derive macro
     async fn http_delete(
         info: web::Path<P>,
         query: web::Query<DQ>,
         app_state: web::Data<AppState>,
-    ) -> Result<HttpResponse, HttpResponse>;
+    ) -> HttpResponse;
 }
 
 /// This Trait is automaticaly implemented with the `actix_restful_derive::HttpUpdate` derive macro
@@ -275,7 +275,7 @@ pub trait HttpUpdate<P, Q, AppState> {
         payload: web::Json<Box<Self>>,
         query: web::Query<Q>,
         app_state: web::Data<AppState>,
-    ) -> Result<HttpResponse, HttpResponse>;
+    ) -> HttpResponse;
 }
 
 pub trait RestfulPathInfo {
@@ -292,7 +292,7 @@ pub trait RestfulPathInfo {
 ///    actix_web::HttpServer::new(|| {
 ///        actix_web::App::new()
 ///            .service(actix_web::web::scope(Item::scope()).configure(gen_endpoint!(Item, NewItem, UpdatableItem)))
-///            .data(AppState{})
+///            .app_data(actix_web::web::Data::new(AppState{}))
 ///    })
 ///        .bind(("127.0.0.1", 8085))?
 ///        .run()

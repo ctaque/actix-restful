@@ -137,7 +137,7 @@ async fn main() -> std::io::Result<()>{
     actix_web::HttpServer::new(|| {
         actix_web::App::new()
             .service(actix_web::web::scope(Item::scope()).configure(gen_endpoint!(Item, NewItem, UpdatableItem)))
-            .data(AppState{})
+            .app_data(actix_web::web::Data::new(AppState{}))
     })
         .bind(("127.0.0.1", 8085))?
         .run()
