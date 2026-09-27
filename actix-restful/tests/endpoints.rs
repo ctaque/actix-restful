@@ -80,7 +80,7 @@ struct ListResult {
 
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize, HttpFindListDelete)]
 #[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]
-#[actix_restful_info(scope = "/v1", path = "item")]
+#[actix_restful_info(path = "item")]
 struct Item {
     id: Id,
     content: String,
@@ -184,7 +184,7 @@ macro_rules! init {
         test::init_service(
             App::new()
                 .app_data($state.clone())
-                .service(web::scope(Item::scope()).configure(gen_endpoint!(
+                .service(web::scope("/v1").configure(gen_endpoint!(
                     Item,
                     NewItem,
                     UpdatableItem
@@ -203,8 +203,7 @@ async fn body_string(resp: ServiceResponse<impl MessageBody>) -> String {
 // ---------------------------------------------------------------------------
 
 #[actix_web::test]
-async fn restful_info_exposes_scope_and_path() {
-    assert_eq!(Item::scope(), "/v1");
+async fn restful_info_exposes_path() {
     assert_eq!(Item::path(), "item");
 }
 

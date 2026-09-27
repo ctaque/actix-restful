@@ -67,7 +67,6 @@ impl syn::parse::Parse for HttpFindListDeleteDeriveParams {
 
 #[derive(Debug, FromMeta)]
 struct RestfulInfo {
-    pub scope: String,
     pub path: String,
 }
 
@@ -88,16 +87,11 @@ pub fn actix_restful_info(args: proc_macro::TokenStream, input: proc_macro::Toke
     };
     let name  = ast.ident;
     let path =args_tokens.path;
-    let scope = args_tokens.scope;
     let gen = quote! {
         impl RestfulPathInfo for #name {
             fn path() -> String  {
                 let p = #path;
                 let p = p.to_string();
-                p
-            }
-            fn scope() -> &'static str {
-                let p = #scope;
                 p
             }
         }
@@ -352,30 +346,23 @@ mod tests {
 
     #[test]
     fn parses_restful_info() {
-        let info = restful_info(quote! { scope = "/v1", path = "item" }).unwrap();
-        assert_eq!(info.scope, "/v1");
+        let info = restful_info(quote! { path = "item" }).unwrap();
         assert_eq!(info.path, "item");
     }
 
     #[test]
     fn parses_restful_info_in_any_order() {
-        let info = restful_info(quote! { path = "item", scope = "/v1" }).unwrap();
-        assert_eq!(info.scope, "/v1");
+        let info = restful_info(quote! { path = "item" }).unwrap();
         assert_eq!(info.path, "item");
     }
 
     #[test]
     fn rejects_restful_info_without_path() {
-        assert!(restful_info(quote! { scope = "/v1" }).is_err());
-    }
-
-    #[test]
-    fn rejects_restful_info_without_scope() {
-        assert!(restful_info(quote! { path = "item" }).is_err());
+        assert!(restful_info(quote! {}).is_err());
     }
 
     #[test]
     fn rejects_restful_info_with_unknown_field() {
-        assert!(restful_info(quote! { scope = "/v1", path = "item", version = "2" }).is_err());
+        assert!(restful_info(quote! { path = "item", version = "2" }).is_err());
     }
 }

@@ -37,7 +37,7 @@
 //!
 //!#[derive(Default, Serialize, Deserialize, HttpFindListDelete)]
 //!#[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]
-//!#[actix_restful_info(scope = "/v1", path = "item")]
+//!#[actix_restful_info(path = "item")]
 //!struct Item {
 //!    id: Id,
 //!    content: String,
@@ -125,7 +125,7 @@
 //!async fn main() -> std::io::Result<()>{
 //!     actix_web::HttpServer::new(|| {
 //!         actix_web::App::new()
-//!         .service(actix_web::web::scope(Item::scope()).configure(gen_endpoint!(Item, NewItem, UpdatableItem)))
+//!         .service(actix_web::web::scope("/v1").configure(gen_endpoint!(Item, NewItem, UpdatableItem)))
 //!         .app_data(actix_web::web::Data::new(AppState{}))
 //!     })
 //!     .bind(("127.0.0.1", 8085))?
@@ -137,6 +137,9 @@
 use actix_web::{web, HttpResponse};
 use anyhow::Result;
 use async_trait::async_trait;
+
+#[cfg(feature = "openapi")]
+pub mod openapi;
 
 /// A trait to implement on your main struct entity via the HttpFindListDelete derive macro :
 ///
@@ -153,7 +156,7 @@ use async_trait::async_trait;
 ///
 /// #[derive(HttpFindListDelete)]
 /// #[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]
-/// #[actix_restful_info(scope = "/v1", path = "item")]
+/// #[actix_restful_info(path = "item")]
 /// struct Item {
 /// }
 ///
@@ -280,7 +283,6 @@ pub trait HttpUpdate<P, Q, AppState> {
 
 pub trait RestfulPathInfo {
     fn path() -> String;
-    fn scope() -> &'static str;
 }
 
 /// A macro to generate the http routes on the Actix app :
@@ -291,7 +293,7 @@ pub trait RestfulPathInfo {
 /// async fn main() -> std::io::Result<()>{
 ///    actix_web::HttpServer::new(|| {
 ///        actix_web::App::new()
-///            .service(actix_web::web::scope(Item::scope()).configure(gen_endpoint!(Item, NewItem, UpdatableItem)))
+///            .service(actix_web::web::scope("/v1").configure(gen_endpoint!(Item, NewItem, UpdatableItem)))
 ///            .app_data(actix_web::web::Data::new(AppState{}))
 ///    })
 ///        .bind(("127.0.0.1", 8085))?
@@ -302,7 +304,7 @@ pub trait RestfulPathInfo {
 ///
 /// If the attribute macro `actix_restful_info` is used with these parameters :
 ///
-/// #[actix_restful_info(scope = "/v1", path = "item")]
+/// #[actix_restful_info(path = "item")]
 ///
 ///
 /// The macro gen_endpoint! will generate 5 routes on the actix App :
@@ -338,6 +340,80 @@ macro_rules! gen_endpoint {
             .route(
                 "/{path}".replace("{path}", &path).as_str(),
                 web::post().to($new_model::http_create),
+            );
+        }
+    }};
+}
+
+/// Same as `gen_endpoint!`, on an [apistos](https://docs.rs/apistos) app: the 5 routes are
+/// added to its OpenAPI document (requires the `openapi` feature).
+///
+/// The models, their query structs and the list / delete results must implement
+/// `apistos::ApiComponent` (usually `#[derive(JsonSchema, ApiComponent)]`).
+///
+/// ```ignore
+///
+/// use apistos::app::OpenApiWrapper;
+/// use apistos::spec::Spec;
+///
+/// #[actix_web::main]
+/// async fn main() -> std::io::Result<()>{
+///    actix_web::HttpServer::new(|| {
+///        actix_web::App::new()
+///            .document(Spec::default())
+///            .service(apistos::web::scope("/v1").configure(gen_documented_endpoint!(Item, NewItem, UpdatableItem)))
+///            .app_data(actix_web::web::Data::new(AppState{}))
+///            .build("/openapi.json")
+///    })
+///        .bind(("127.0.0.1", 8085))?
+///        .run()
+///        .await
+/// }
+/// ```
+#[cfg(feature = "openapi")]
+#[macro_export]
+macro_rules! gen_documented_endpoint {
+    ($model:ident, $new_model:ident, $updatable_model:ident) => {{
+        let path = <$model as $crate::RestfulPathInfo>::path();
+        use std::marker::PhantomData;
+        use $crate::openapi::{self, apistos::web};
+        move |cfg: &mut web::ServiceConfig| {
+            let item_path = "/{path}/{id}".replace("{path}", &path);
+            let collection_path = "/{path}".replace("{path}", &path);
+            cfg.route(
+                &item_path,
+                web::get().to(openapi::find(
+                    PhantomData::<$model>,
+                    <$model as $crate::HttpFindListDelete<_, _, _, _, _>>::http_find,
+                )),
+            )
+            .route(
+                &item_path,
+                web::delete().to(openapi::delete(
+                    PhantomData::<$model>,
+                    <$model as $crate::HttpFindListDelete<_, _, _, _, _>>::http_delete,
+                )),
+            )
+            .route(
+                &item_path,
+                web::put().to(openapi::update(
+                    PhantomData::<($model, $updatable_model)>,
+                    <$updatable_model as $crate::HttpUpdate<_, _, _>>::http_update,
+                )),
+            )
+            .route(
+                &collection_path,
+                web::get().to(openapi::list(
+                    PhantomData::<$model>,
+                    <$model as $crate::HttpFindListDelete<_, _, _, _, _>>::http_list,
+                )),
+            )
+            .route(
+                &collection_path,
+                web::post().to(openapi::create(
+                    PhantomData::<($model, $new_model)>,
+                    <$new_model as $crate::HttpCreate<_, _>>::http_create,
+                )),
             );
         }
     }};

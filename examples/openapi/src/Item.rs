@@ -6,44 +6,43 @@ use actix_restful::{
     Model,
     NewModel,
     UpdatableModel,
-    gen_endpoint,
+    gen_documented_endpoint,
     RestfulPathInfo
 };
 use actix_restful_derive::{HttpCreate, HttpFindListDelete, HttpUpdate, actix_restful_info};
 use anyhow::Result;
+use apistos::ApiComponent;
 use async_trait::async_trait;
+use schemars::JsonSchema;
 use std::default::Default;
 use actix_web;
-use serde_json;
 use chrono::prelude::*;
 
-struct AppState {}
-#[derive(Default, Deserialize)]
+use crate::shared::AppState;
+
+// Query structs are documented as query parameters
+#[derive(Default, Deserialize, JsonSchema, ApiComponent)]
 struct FindQuery {}
-#[derive(Deserialize)]
+#[derive(Deserialize, JsonSchema, ApiComponent)]
 struct ListQuery {
-    offset: usize,
-    limit: usize,
+    /// Number of items to skip
+    offset: Option<usize>,
 }
-#[derive(Deserialize)]
+#[derive(Deserialize, JsonSchema, ApiComponent)]
 struct DeleteQuery {}
-#[derive(Serialize)]
-struct ListResult{
-    limit: usize,
-    offset: usize,
-    results: Vec<Item>
-}
+type ListResult = Vec<Item>;
 type DeleteResult = Item;
-#[derive(Deserialize)]
+#[derive(Deserialize, JsonSchema, ApiComponent)]
 struct SaveQuery {}
-#[derive(Deserialize)]
+#[derive(Deserialize, JsonSchema, ApiComponent)]
 struct UpdateQuery {}
 type Id = i64;
 
-#[derive(Default, Serialize, Deserialize, HttpFindListDelete)]
+/// An item of the store
+#[derive(Default, Serialize, Deserialize, JsonSchema, ApiComponent, HttpFindListDelete)]
 #[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]
 #[actix_restful_info(path = "item")]
-struct Item {
+pub struct Item {
     id: Id,
     content: String,
     deleted_at: Option<DateTime<Utc>>,
@@ -70,7 +69,8 @@ impl Model<Id, FindQuery, ListQuery, ListResult, DeleteQuery, DeleteResult, AppS
     async fn list(query: &ListQuery, _state: &AppState) -> Result<ListResult> {
         // list
         let mut res = Vec::new();
-        for i in 1..500{
+        let offset = query.offset.unwrap_or(0) as i64;
+        for i in offset..offset + 2 {
             res.push(Item {
                 id: i,
                 content: String::from("test"),
@@ -79,13 +79,7 @@ impl Model<Id, FindQuery, ListQuery, ListResult, DeleteQuery, DeleteResult, AppS
                 created_at: None,
             });
         }
-        let paginated: Vec<Item> = res.into_iter().skip(query.offset).take(query.limit).collect();
-        let output = ListResult {
-            limit: query.limit,
-            offset: query.offset,
-            results: paginated
-        };
-        Ok(output)
+        Ok(res)
     }
     async fn delete(mut self: Self, _query: &DeleteQuery, _state: &AppState) -> Result<DeleteResult> {
         // hard or soft delete
@@ -95,7 +89,8 @@ impl Model<Id, FindQuery, ListQuery, ListResult, DeleteQuery, DeleteResult, AppS
     }
 }
 
-#[derive(Serialize, Deserialize, HttpCreate)]
+/// The payload to create an item
+#[derive(Serialize, Deserialize, JsonSchema, ApiComponent, HttpCreate)]
 #[http_create(SaveQuery, AppState)]
 struct NewItem {
     content: String,
@@ -115,7 +110,8 @@ impl NewModel<Item, SaveQuery, AppState> for NewItem {
     }
 }
 
-#[derive(Serialize, Deserialize, HttpUpdate)]
+/// The payload to update an item
+#[derive(Serialize, Deserialize, JsonSchema, ApiComponent, HttpUpdate)]
 #[http_update(Id, UpdateQuery, Item, FindQuery, AppState)]
 struct UpdatableItem {
     id: Id,
@@ -132,14 +128,7 @@ impl UpdatableModel<UpdatableItem, UpdateQuery, AppState> for UpdatableItem {
     }
 }
 
-#[actix_web::main]
-async fn main() -> std::io::Result<()>{
-    actix_web::HttpServer::new(|| {
-        actix_web::App::new()
-            .service(actix_web::web::scope("/v1").configure(gen_endpoint!(Item, NewItem, UpdatableItem)))
-            .app_data(actix_web::web::Data::new(AppState{}))
-    })
-        .bind(("127.0.0.1", 8085))?
-        .run()
-        .await
+// Registers the documented routes of the item endpoint
+pub fn configure(cfg: &mut apistos::web::ServiceConfig) {
+    gen_documented_endpoint!(Item, NewItem, UpdatableItem)(cfg)
 }

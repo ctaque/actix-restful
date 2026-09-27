@@ -50,7 +50,7 @@ fn main() -> Result<(), Error> {
     
     #[derive(Default, Serialize, Deserialize, HttpFindListDelete)]
     #[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]
-    #[actix_restful_info(scope = "/v1", path = "{entity_lower_case}")]
+    #[actix_restful_info(path = "{entity_lower_case}")]
     struct {entity} {
         id: Id,
     }

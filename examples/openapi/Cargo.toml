@@ -1,0 +1,18 @@
+[package]
+name = "openapi"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+actix-restful = { workspace = true, features = ["openapi"] }
+actix-restful-derive.workspace = true
+actix-web.workspace = true
+anyhow.workspace = true
+apistos = { workspace = true, features = ["chrono", "swagger-ui"] }
+async-trait.workspace = true
+chrono.workspace = true
+schemars.workspace = true
+serde.workspace = true

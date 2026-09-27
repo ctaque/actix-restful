@@ -34,7 +34,7 @@ type Id = i64;
 
 #[derive(Default, Serialize, Deserialize, HttpFindListDelete)]
 #[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]
-#[actix_restful_info(scope = "/v1", path = "item")]
+#[actix_restful_info(path = "item")]
 struct Item {
     id: Id,
     content: String,
@@ -122,7 +122,7 @@ impl UpdatableModel<UpdatableItem, UpdateQuery, AppState> for UpdatableItem {
 async fn main() -> std::io::Result<()>{
     actix_web::HttpServer::new(|| {
         actix_web::App::new()
-            .service(actix_web::web::scope(Item::scope()).configure(gen_endpoint!(Item, NewItem, UpdatableItem)))
+            .service(actix_web::web::scope("/v1").configure(gen_endpoint!(Item, NewItem, UpdatableItem)))
             .app_data(actix_web::web::Data::new(AppState{}))
     })
         .bind(("127.0.0.1", 8085))?

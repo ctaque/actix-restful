@@ -10,8 +10,18 @@ actix-web.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 serde_json.workspace = true
+apistos = { workspace = true, optional = true }
+
+[features]
+openapi = ["dep:apistos"]
 
 [dev-dependencies]
+apistos.workspace = true
+schemars.workspace = true
 actix-restful-derive.workspace = true
 chrono.workspace = true
 serde.workspace = true
+
+[[test]]
+name = "openapi"
+required-features = ["openapi"]

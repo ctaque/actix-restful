@@ -137,6 +137,62 @@ The macro gen_endpoint! will generate 5 routes :
 
 If the updatable struct has an `id` field, `PUT /v1/project/{id}` answers `400 ID_MISMATCH` when the payload `id` differs from the path `{id}`.
 
+#### OpenAPI documentation with apistos
+
+With the `openapi` feature, the macro `gen_documented_endpoint!` generates the same 5 routes on an [apistos](https://docs.rs/apistos) app, which adds them to its OpenAPI 3.0 document.
+Operations are tagged with the model path (`project`) and identified by the action and the path (`find_project`, `list_project`, `create_project`, `update_project`, `delete_project`).
+
+``` toml
+[dependencies]
+actix-restful = { version = "0.2", features = ["openapi"] }
+apistos = { version = "0.9", features = ["chrono", "swagger-ui"] }
+# apistos relies on its fork of schemars
+schemars = { package = "apistos-schemars", version = "0.8" }
+```
+
+The models, the query structs and the list / delete results must implement `apistos::ApiComponent`:
+
+``` rust
+use apistos::ApiComponent;
+use schemars::JsonSchema;
+
+#[derive(Deserialize, JsonSchema, ApiComponent)]
+struct ListQuery {
+    offset: Option<usize>,
+}
+
+/// Doc comments are used as schema descriptions
+#[derive(Default, Serialize, Deserialize, JsonSchema, ApiComponent, HttpFindListDelete)]
+#[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]
+#[actix_restful_info(scope = "/v1", path = "project")]
+struct Project {
+    ...
+}
+```
+
+``` rust
+use actix_restful::gen_documented_endpoint;
+use apistos::app::{BuildConfig, OpenApiWrapper};
+use apistos::spec::Spec;
+use apistos::SwaggerUIConfig;
+
+async fn main() -> std::io::Result<()>{
+    actix_web::HttpServer::new(|| {
+        actix_web::App::new()
+            .document(Spec::default())
+            .service(apistos::web::scope(Project::scope()).configure(gen_documented_endpoint!(Project, NewProject, UpdatableProject)))
+            .app_data(web::Data::new(AppState{}))
+            // serves the document on /openapi.json and Swagger UI on /swagger
+            .build_with("/openapi.json", BuildConfig::default().with(SwaggerUIConfig::new(&"/swagger")))
+    })
+        .bind(("127.0.0.1", 8085))?
+        .run()
+        .await
+}
+```
+
+apistos parses route paths with a regex syntax introduced in `regex` 1.9, but accepts older versions: if the app panics with `path name regex`, run `cargo update -p regex`.
+
 #### actix-restful-cli
 
 Alternatively, if you want to avoid writing a lot of boilerplate code, you can use the model generator :

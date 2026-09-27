@@ -33,7 +33,7 @@
     
     #[derive(Default, Serialize, Deserialize, HttpFindListDelete)]
     #[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]
-    #[actix_restful_info(scope = "/v1", path = "test")]
+    #[actix_restful_info(path = "test")]
     struct Test {
         id: Id,
     }
