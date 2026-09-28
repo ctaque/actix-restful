@@ -306,7 +306,7 @@ actix-restful generate-model --name Project --fields --sqlx --migration --timest
 Create the project and add the dependencies
 ```
 cargo new my-api && cd my-api
-cargo add actix-restful actix-restful-derive
+cargo add actix-restful
 cargo add actix-web anyhow async-trait
 cargo add serde --features derive
 cargo add sqlx --features runtime-tokio,sqlite,macros,migrate   # if persisting via sqlx
@@ -348,17 +348,9 @@ Wire the model into main.rs
 mod project;
 #[path = "helpers.rs"]
 mod shared; // shared module must export the AppState struct which is in turn imported into the generated models files
-use actix_restful::{gen_endpoint, RestfulPathInfo};
 use actix_web::{web, App, HttpServer};
-use project::{Project, NewProject, UpdatableProject};
 use sqlx::SqlitePool;
  
-
-
-pub struct AppState {
-    pub pool: SqlitePool,
-}
-
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let pool = SqlitePool::connect("sqlite://data.db?mode=rwc").await.unwrap();
