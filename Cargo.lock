@@ -70,7 +70,7 @@ dependencies = [
 
 [[package]]
 name = "actix-restful"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "actix-restful-derive",
  "actix-web",
@@ -85,7 +85,7 @@ dependencies = [
 
 [[package]]
 name = "actix-restful-cli"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "chrono",
  "sqlx",
@@ -94,7 +94,7 @@ dependencies = [
 
 [[package]]
 name = "actix-restful-derive"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "darling 0.13.1",
  "proc-macro2",

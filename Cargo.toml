@@ -10,7 +10,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/ctaque/actix-restful"
@@ -21,8 +21,8 @@ strip = false
 
 [workspace.dependencies]
 # Crates internes
-actix-restful = { version = "0.6.0", path = "actix-restful" }
-actix-restful-derive = { version = "0.6.0", path = "actix-restful-derive" }
+actix-restful = { version = "0.7.0", path = "actix-restful" }
+actix-restful-derive = { version = "0.7.0", path = "actix-restful-derive" }
 
 # Dépendances externes
 actix-web = "4"
