@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 
+
 members = [
     "actix-restful",
     "actix-restful-derive",
@@ -11,6 +12,9 @@ members = [
 [workspace.package]
 version = "0.6.0"
 edition = "2021"
+license = "MIT"
+repository = "https://github.com/ctaque/actix-restful"
+authors = ["Cyprien Taque"]
 
 [profile.release.build-override]
 strip = false

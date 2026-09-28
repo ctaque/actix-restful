@@ -2,6 +2,10 @@
 name = "actix-restful-derive"
 version.workspace = true
 edition.workspace = true
+description = "Derive and procedural macros for actix-restful"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
