@@ -205,6 +205,14 @@ actix-restful generate-model --name Project
 
 This wil generate a base model of name Project.rs at path ./Project.rs
 
+With `--openapi`, the model, its query structs and its creatable / updatable structs also derive `JsonSchema` and `ApiComponent`, ready for `gen_documented_endpoint!` (see [OpenAPI documentation with apistos](#openapi-documentation-with-apistos)):
+
+``` bash
+
+actix-restful generate-model --name Project --openapi
+
+```
+
 #### Examples :
 
 Look into folder examples

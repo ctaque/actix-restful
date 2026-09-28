@@ -9,13 +9,43 @@ pub enum Opt {
     GenerateModel {
         #[structopt(short = "n", long = "name")]
         name: String,
+        /// Derives JsonSchema and ApiComponent on the model types, for `gen_documented_endpoint!`
+        #[structopt(long = "openapi")]
+        openapi: bool,
     }
 }
 
-fn main() -> Result<(), Error> {
-    let opt = Opt::from_args();
+const OPENAPI_IMPORTS: &str = r#"
+    use apistos::ApiComponent;
+    use schemars::JsonSchema;
+    use actix_restful::gen_documented_endpoint;"#;
 
-    let model_tpl = r#"
+const OPENAPI_CONFIGURE: &str = r#"
+
+    // Registers the documented routes of the {entity_lower_case} endpoint
+    // (actix-restful `openapi` feature), to mount with `.configure({entity_lower_case}::configure)`
+    pub fn configure(cfg: &mut apistos::web::ServiceConfig) {
+        gen_documented_endpoint!({entity}, New{entity}, Updatable{entity})(cfg)
+    }
+"#;
+
+const OPENAPI_DERIVES: &str = ", JsonSchema, ApiComponent";
+
+fn render_model(name: &str, openapi: bool) -> String {
+    let (imports, derives, configure) = if openapi {
+        (OPENAPI_IMPORTS, OPENAPI_DERIVES, OPENAPI_CONFIGURE)
+    } else {
+        ("", "", "")
+    };
+    MODEL_TPL
+        .replace("{openapi_imports}", imports)
+        .replace("{openapi_derives}", derives)
+        .replace("{openapi_configure}", configure)
+        .replace("{entity}", name)
+        .replace("{entity_lower_case}", &name.to_lowercase())
+}
+
+const MODEL_TPL: &str = r#"
     use serde::{Serialize, Deserialize};
     use actix_restful::{
         HttpCreate,
@@ -32,23 +62,23 @@ fn main() -> Result<(), Error> {
     use async_trait::async_trait;
     use std::default::Default;
     use actix_web;
-    use serde_json;
-    
-    #[derive(Default, Deserialize)]
+    use serde_json;{openapi_imports}
+
+    #[derive(Default, Deserialize{openapi_derives})]
     struct FindQuery {}
-    #[derive(Deserialize)]
+    #[derive(Deserialize{openapi_derives})]
     struct ListQuery {}
-    #[derive(Deserialize)]
+    #[derive(Deserialize{openapi_derives})]
     struct DeleteQuery {}
     type ListResult = Vec<{entity}>;
     type DeleteResult = {entity};
-    #[derive(Deserialize)]
+    #[derive(Deserialize{openapi_derives})]
     struct SaveQuery {}
-    #[derive(Deserialize)]
+    #[derive(Deserialize{openapi_derives})]
     struct UpdateQuery {}
     type Id = i64;
-    
-    #[derive(Default, Serialize, Deserialize, HttpFindListDelete)]
+
+    #[derive(Default, Serialize, Deserialize{openapi_derives}, HttpFindListDelete)]
     #[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]
     #[actix_restful_info(path = "{entity_lower_case}")]
     struct {entity} {
@@ -68,7 +98,7 @@ fn main() -> Result<(), Error> {
         }
     }
     
-    #[derive(Serialize, Deserialize, HttpCreate)]
+    #[derive(Serialize, Deserialize{openapi_derives}, HttpCreate)]
     #[http_create(SaveQuery, AppState)]
     struct New{entity} {
 
@@ -80,7 +110,7 @@ fn main() -> Result<(), Error> {
         }
     }
     
-    #[derive(Serialize, Deserialize, HttpUpdate)]
+    #[derive(Serialize, Deserialize{openapi_derives}, HttpUpdate)]
     #[http_update(Id, UpdateQuery, {entity}, FindQuery, AppState)]
     struct Updatable{entity} {
         id: Id,
@@ -90,12 +120,15 @@ fn main() -> Result<(), Error> {
         async fn update(mut self: Self, _query: &UpdateQuery, _state: &AppState) -> Result<Updatable{entity}> {
             // update in db
         }
-    }
+    }{openapi_configure}
     "#;
+
+fn main() -> Result<(), Error> {
+    let opt = Opt::from_args();
+
     match opt {
-        Opt::GenerateModel { name } => {
-            let to_write = model_tpl.replace("{entity}", &name)
-                .replace("{entity_lower_case}", &name.to_lowercase());
+        Opt::GenerateModel { name, openapi } => {
+            let to_write = render_model(&name, openapi);
             let mut path = String::from("");
             path.push_str(&name);
             path.push_str(".rs");
@@ -104,5 +137,34 @@ fn main() -> Result<(), Error> {
             println!("Successfully generated model {}", path);
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::render_model;
+
+    #[test]
+    fn default_model_has_no_openapi_derives() {
+        let model = render_model("Project", false);
+        assert!(!model.contains("JsonSchema"));
+        assert!(!model.contains("ApiComponent"));
+        assert!(!model.contains("fn configure"));
+        assert!(!model.contains("{openapi"));
+        assert!(model.contains("#[actix_restful_info(path = \"project\")]"));
+    }
+
+    #[test]
+    fn openapi_model_derives_schemas_on_every_route_type() {
+        let model = render_model("Project", true);
+        assert!(model.contains("use apistos::ApiComponent;"));
+        assert!(model.contains("use schemars::JsonSchema;"));
+        assert!(model.contains("use actix_restful::gen_documented_endpoint;"));
+        assert!(model.contains("pub fn configure(cfg: &mut apistos::web::ServiceConfig) {"));
+        assert!(model.contains("gen_documented_endpoint!(Project, NewProject, UpdatableProject)(cfg)"));
+        // 5 query structs + Project, NewProject and UpdatableProject
+        assert_eq!(model.matches(", JsonSchema, ApiComponent").count(), 8);
+        assert!(!model.contains("{openapi"));
+        assert!(!model.contains("{entity"));
     }
 }
