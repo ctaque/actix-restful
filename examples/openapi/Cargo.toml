@@ -11,11 +11,9 @@ release = false
 
 [dependencies]
 actix-restful = { workspace = true, features = ["openapi"] }
-actix-restful-derive.workspace = true
 actix-web.workspace = true
 anyhow.workspace = true
 apistos = { workspace = true, features = ["chrono", "swagger-ui"] }
-async-trait.workspace = true
 chrono.workspace = true
 schemars.workspace = true
 serde.workspace = true

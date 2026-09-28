@@ -208,9 +208,9 @@ const EMPTY_BODIES: [&str; 5] = [
 // Pagination parameters of the list query, only generated with --sqlx
 const LIST_QUERY_FIELDS: &str = r#"
         /// Number of rows to skip
-        offset: Option<usize>,
+        pub offset: Option<usize>,
         /// Maximum number of rows to return (20 by default, 100 at most)
-        limit: Option<usize>,
+        pub limit: Option<usize>,
     "#;
 
 // Clamps the pagination parameters of the list query before binding them
@@ -598,7 +598,7 @@ fn chrono_imports(fields: &[Field], timestamps: bool) -> String {
 fn struct_fields(fields: &[Field]) -> String {
     fields
         .iter()
-        .map(|f| format!("\n        {}: {},", f.name, f.ty))
+        .map(|f| format!("\n        pub {}: {},", f.name, f.ty))
         .collect()
 }
 
@@ -661,6 +661,8 @@ fn render_model(name: &str, openapi: bool, sqlx: bool, timestamps: bool, fields:
 }
 
 const MODEL_TPL: &str = r#"
+    // The application state, declared (or re-exported) at the root of the crate
+    use crate::AppState;
     use serde::{Serialize, Deserialize};
     use actix_restful::{
         HttpCreate,
@@ -669,34 +671,30 @@ const MODEL_TPL: &str = r#"
         Model,
         NewModel,
         UpdatableModel,
-        RestfulPathInfo
-    };
-    use actix_restful_derive::{HttpCreate, HttpFindListDelete, HttpUpdate, actix_restful_info};
-
-    use anyhow::Result;
-    use async_trait::async_trait;
-    use std::default::Default;
-    use actix_web;{chrono_imports}{openapi_imports}
+        actix_restful_info,
+        anyhow::Result,
+        async_trait,
+    };{chrono_imports}{openapi_imports}
 
     #[derive(Default, Deserialize{openapi_derives})]
-    struct FindQuery {}
+    pub struct FindQuery {}
     #[derive(Deserialize{openapi_derives})]
-    struct ListQuery {{list_query_fields}}
+    pub struct ListQuery {{list_query_fields}}
     #[derive(Deserialize{openapi_derives})]
-    struct DeleteQuery {}
-    type ListResult = Vec<{entity}>;
-    type DeleteResult = {entity};
+    pub struct DeleteQuery {}
+    pub type ListResult = Vec<{entity}>;
+    pub type DeleteResult = {entity};
     #[derive(Deserialize{openapi_derives})]
-    struct SaveQuery {}
+    pub struct SaveQuery {}
     #[derive(Deserialize{openapi_derives})]
-    struct UpdateQuery {}
-    type Id = i64;{list_limits}
+    pub struct UpdateQuery {}
+    pub type Id = i64;{list_limits}
 
     #[derive(Default, Serialize, Deserialize{openapi_derives}{sqlx_derives}, HttpFindListDelete)]
     #[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]
     #[actix_restful_info(path = "{entity_lower_case}")]
-    struct {entity} {
-        id: Id,{model_fields}
+    pub struct {entity} {
+        pub id: Id,{model_fields}
     }
     
     #[async_trait]
@@ -714,7 +712,7 @@ const MODEL_TPL: &str = r#"
     
     #[derive(Serialize, Deserialize{openapi_derives}, HttpCreate)]
     #[http_create(SaveQuery, AppState)]
-    struct New{entity} {{new_fields}
+    pub struct New{entity} {{new_fields}
     }
     #[async_trait]
     impl NewModel<{entity}, SaveQuery, AppState> for New{entity} {
@@ -725,8 +723,8 @@ const MODEL_TPL: &str = r#"
     
     #[derive(Serialize, Deserialize{openapi_derives}{sqlx_derives}, HttpUpdate)]
     #[http_update(Id, UpdateQuery, {entity}, FindQuery, AppState)]
-    struct Updatable{entity} {
-        id: Id,{updatable_fields}
+    pub struct Updatable{entity} {
+        pub id: Id,{updatable_fields}
     }
     #[async_trait]
     impl UpdatableModel<Updatable{entity}, UpdateQuery, AppState> for Updatable{entity} {
@@ -754,12 +752,11 @@ fn main() -> Result<(), Error> {
                 process::exit(1);
             }
             let to_write = render_model(&name, openapi, sqlx, timestamps, &fields, dialect);
-            let mut path = String::from("");
-            path.push_str(&name);
-            path.push_str(".rs");
-            let mut output = File::create(path.clone())?;
+            let module = to_snake_case(&name);
+            let path = format!("{}.rs", module);
+            let mut output = File::create(&path)?;
             write!(output, "{}", to_write)?;
-            println!("Successfully generated model {}", path);
+            println!("Successfully generated model {}, declare it with `mod {};`", path, module);
             if migration {
                 let secs = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
                 let dir = migrations_dir(&std::env::current_dir()?);
@@ -810,11 +807,21 @@ mod tests {
     }
 
     #[test]
+    fn model_only_depends_on_actix_restful_and_the_app_state() {
+        let model = render_model("Project", false, false, false, &[], Dialect::Sqlite);
+        assert!(model.contains("use crate::AppState;"));
+        assert!(model.contains("        actix_restful_info,\n        anyhow::Result,\n        async_trait,\n    };"));
+        assert!(!model.contains("actix_restful_derive"));
+        assert!(!model.contains("use anyhow"));
+        assert!(!model.contains("use async_trait"));
+    }
+
+    #[test]
     fn model_without_fields_keeps_empty_structs() {
         let model = render_model("Project", false, false, false, &[], Dialect::Sqlite);
-        assert!(model.contains("struct Project {\n        id: Id,\n    }"));
-        assert!(model.contains("struct NewProject {\n\n    }"));
-        assert!(model.contains("struct UpdatableProject {\n        id: Id,\n    }"));
+        assert!(model.contains("pub struct Project {\n        pub id: Id,\n    }"));
+        assert!(model.contains("pub struct NewProject {\n\n    }"));
+        assert!(model.contains("pub struct UpdatableProject {\n        pub id: Id,\n    }"));
         assert!(!model.contains("_fields}"));
     }
 
@@ -825,9 +832,9 @@ mod tests {
             Field { name: "stars".into(), ty: "i32".into() },
         ];
         let model = render_model("Project", false, false, false, &fields, Dialect::Sqlite);
-        assert!(model.contains("struct Project {\n        id: Id,\n        title: String,\n        stars: i32,\n    }"));
-        assert!(model.contains("struct NewProject {\n        title: String,\n        stars: i32,\n    }"));
-        assert!(model.contains("struct UpdatableProject {\n        id: Id,\n        title: String,\n        stars: i32,\n    }"));
+        assert!(model.contains("pub struct Project {\n        pub id: Id,\n        pub title: String,\n        pub stars: i32,\n    }"));
+        assert!(model.contains("pub struct NewProject {\n        pub title: String,\n        pub stars: i32,\n    }"));
+        assert!(model.contains("pub struct UpdatableProject {\n        pub id: Id,\n        pub title: String,\n        pub stars: i32,\n    }"));
     }
 
     #[test]
@@ -929,8 +936,8 @@ mod tests {
     fn sqlx_model_paginates_the_list() {
         let fields = vec![Field { name: "title".into(), ty: "String".into() }];
         let model = render_model("Project", false, true, false, &fields, Dialect::Sqlite);
-        assert!(model.contains("struct ListQuery {\n        /// Number of rows to skip\n        offset: Option<usize>,"));
-        assert!(model.contains("        limit: Option<usize>,\n    }"));
+        assert!(model.contains("pub struct ListQuery {\n        /// Number of rows to skip\n        pub offset: Option<usize>,"));
+        assert!(model.contains("        pub limit: Option<usize>,\n    }"));
         assert!(model.contains("const DEFAULT_LIMIT: i64 = 20;"));
         assert!(model.contains("const MAX_LIMIT: i64 = 100;"));
         assert!(model.contains("async fn list(query: &ListQuery, state: &AppState)"));
@@ -940,7 +947,7 @@ mod tests {
         assert!(mysql.contains("\"SELECT * FROM project ORDER BY id LIMIT ? OFFSET ?\""));
         // without --sqlx the list query stays empty
         let model = render_model("Project", false, false, false, &fields, Dialect::Sqlite);
-        assert!(model.contains("struct ListQuery {}"));
+        assert!(model.contains("pub struct ListQuery {}"));
         assert!(model.contains("async fn list(_query: &ListQuery, _state: &AppState)"));
         assert!(!model.contains("LIMIT"));
     }
@@ -1017,9 +1024,9 @@ mod tests {
         let fields = vec![Field { name: "title".into(), ty: "String".into() }];
         let model = render_model("Project", false, false, true, &fields, Dialect::Sqlite);
         assert!(model.contains("use chrono::{DateTime, Utc};"));
-        assert!(model.contains("struct Project {\n        id: Id,\n        title: String,\n        created_at: Option<DateTime<Utc>>,\n        updated_at: Option<DateTime<Utc>>,\n        deleted_at: Option<DateTime<Utc>>,\n    }"));
-        assert!(model.contains("struct NewProject {\n        title: String,\n    }"));
-        assert!(model.contains("struct UpdatableProject {\n        id: Id,\n        title: String,\n        updated_at: Option<DateTime<Utc>>,\n    }"));
+        assert!(model.contains("pub struct Project {\n        pub id: Id,\n        pub title: String,\n        pub created_at: Option<DateTime<Utc>>,\n        pub updated_at: Option<DateTime<Utc>>,\n        pub deleted_at: Option<DateTime<Utc>>,\n    }"));
+        assert!(model.contains("pub struct NewProject {\n        pub title: String,\n    }"));
+        assert!(model.contains("pub struct UpdatableProject {\n        pub id: Id,\n        pub title: String,\n        pub updated_at: Option<DateTime<Utc>>,\n    }"));
         assert!(!render_model("Project", false, false, false, &fields, Dialect::Sqlite).contains("chrono"));
     }
 

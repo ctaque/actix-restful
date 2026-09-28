@@ -7,14 +7,10 @@
         Model,
         NewModel,
         UpdatableModel,
-        RestfulPathInfo
+        actix_restful_info,
+        anyhow::Result,
+        async_trait,
     };
-    use actix_restful_derive::{HttpCreate, HttpFindListDelete, HttpUpdate, actix_restful_info};
-
-    use anyhow::Result;
-    use async_trait::async_trait;
-    use std::default::Default;
-    use actix_web;
     use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
     use apistos::ApiComponent;
     use schemars::JsonSchema;

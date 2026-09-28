@@ -1490,12 +1490,10 @@ name = "openapi"
 version = "0.0.0"
 dependencies = [
  "actix-restful",
- "actix-restful-derive",
  "actix-web",
  "anyhow",
  "apistos",
  "apistos-schemars",
- "async-trait",
  "chrono",
  "serde",
  "sqlx",
@@ -1506,13 +1504,9 @@ name = "pagination"
 version = "0.0.0"
 dependencies = [
  "actix-restful",
- "actix-restful-derive",
  "actix-web",
- "anyhow",
- "async-trait",
  "chrono",
  "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -1853,13 +1847,9 @@ name = "simple"
 version = "0.0.0"
 dependencies = [
  "actix-restful",
- "actix-restful-derive",
  "actix-web",
- "anyhow",
- "async-trait",
  "chrono",
  "serde",
- "serde_json",
 ]
 
 [[package]]

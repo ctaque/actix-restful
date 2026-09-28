@@ -2,10 +2,9 @@
 //! deriving `HttpFindListDelete`, `HttpCreate` and `HttpUpdate`.
 
 use actix_restful::{
-    gen_endpoint, HttpCreate, HttpFindListDelete, HttpUpdate, Model, NewModel, RestfulPathInfo,
-    UpdatableModel,
+    actix_restful_info, gen_endpoint, HttpCreate, HttpFindListDelete, HttpUpdate, Model, NewModel,
+    RestfulPathInfo, UpdatableModel,
 };
-use actix_restful_derive::{actix_restful_info, HttpCreate, HttpFindListDelete, HttpUpdate};
 use actix_web::{
     body::MessageBody,
     dev::ServiceResponse,

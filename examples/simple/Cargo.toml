@@ -11,10 +11,6 @@ release = false
 
 [dependencies]
 actix-restful.workspace = true
-actix-restful-derive.workspace = true
 actix-web.workspace = true
-anyhow.workspace = true
-async-trait.workspace = true
 chrono.workspace = true
 serde.workspace = true
-serde_json.workspace = true

@@ -1,4 +1,6 @@
 extern crate proc_macro;
+// The generated code only names items through `::actix_restful`, which re-exports these macros
+// and the crates they rely on: the application needs no other import nor dependency.
 use darling::FromMeta;
 use quote::{quote, ToTokens};
 use syn::{ self, Result as SynResult, AttributeArgs, Token, parse_macro_input };
@@ -30,15 +32,16 @@ fn impl_http_create_macro(ast: &syn::DeriveInput) -> proc_macro::TokenStream {
 
     let name = &ast.ident;
     let gen = quote! {
-        #[async_trait]
-        impl HttpCreate<#query, #app_state> for #name {
-            async fn http_create(payload: actix_web::web::Json<Box<#name>>, query: actix_web::web::Query<#query>, state: actix_web::web::Data<#app_state>) -> actix_web::HttpResponse{
+        #[::actix_restful::__private::async_trait]
+        impl ::actix_restful::HttpCreate<#query, #app_state> for #name {
+            async fn http_create(payload: ::actix_restful::__private::actix_web::web::Json<Box<#name>>, query: ::actix_restful::__private::actix_web::web::Query<#query>, state: ::actix_restful::__private::actix_web::web::Data<#app_state>) -> ::actix_restful::__private::actix_web::HttpResponse{
+                use ::actix_restful::NewModel;
                 let params = query.into_inner();
                 let to_save = payload.into_inner();
                 let result = to_save.save(&params, &state).await;
                 match result {
-                    Ok(res) => actix_web::HttpResponse::Ok().json(res),
-                    Err(err) => actix_web::HttpResponse::InternalServerError().body(err.to_string())
+                    Ok(res) => ::actix_restful::__private::actix_web::HttpResponse::Ok().json(res),
+                    Err(err) => ::actix_restful::__private::actix_web::HttpResponse::InternalServerError().body(err.to_string())
                 }
             }
         }
@@ -88,7 +91,7 @@ pub fn actix_restful_info(args: proc_macro::TokenStream, input: proc_macro::Toke
     let name  = ast.ident;
     let path =args_tokens.path;
     let gen = quote! {
-        impl RestfulPathInfo for #name {
+        impl ::actix_restful::RestfulPathInfo for #name {
             fn path() -> String  {
                 let p = #path;
                 let p = p.to_string();
@@ -117,40 +120,45 @@ fn impl_http_find_list_delete_macro(ast: &syn::DeriveInput) -> proc_macro::Token
 
     let name = &ast.ident;
     let gen = quote! {
-        #[derive(Deserialize)]
-        struct ActixRestfulPath {
+        #[derive(::actix_restful::__private::serde::Deserialize)]
+        #[serde(crate = "::actix_restful::__private::serde")]
+        #[doc(hidden)]
+        pub struct ActixRestfulPath {
             id: #id
         }
-        #[async_trait]
-        impl HttpFindListDelete<ActixRestfulPath, #find_query, #list_query, #delete_query, #app_state> for #name {
+        #[::actix_restful::__private::async_trait]
+        impl ::actix_restful::HttpFindListDelete<ActixRestfulPath, #find_query, #list_query, #delete_query, #app_state> for #name {
             async fn http_list(
-                query: actix_web::web::Query<#list_query>,
-                state: actix_web::web::Data<#app_state>
-            ) -> actix_web::HttpResponse{
+                query: ::actix_restful::__private::actix_web::web::Query<#list_query>,
+                state: ::actix_restful::__private::actix_web::web::Data<#app_state>
+            ) -> ::actix_restful::__private::actix_web::HttpResponse{
+                use ::actix_restful::Model;
                 let params = query.into_inner();
                 let result = #name::list(&params, &state).await;
                 match result {
-                    Ok(res) => actix_web::HttpResponse::Ok().json(res),
-                    Err(err) => actix_web::HttpResponse::InternalServerError().body(err.to_string())
+                    Ok(res) => ::actix_restful::__private::actix_web::HttpResponse::Ok().json(res),
+                    Err(err) => ::actix_restful::__private::actix_web::HttpResponse::InternalServerError().body(err.to_string())
                 }
             }
             async fn http_find(
-                info: actix_web::web::Path<ActixRestfulPath>,
-                query: actix_web::web::Query<#find_query>,
-                state: actix_web::web::Data<#app_state>
-            ) -> actix_web::HttpResponse {
+                info: ::actix_restful::__private::actix_web::web::Path<ActixRestfulPath>,
+                query: ::actix_restful::__private::actix_web::web::Query<#find_query>,
+                state: ::actix_restful::__private::actix_web::web::Data<#app_state>
+            ) -> ::actix_restful::__private::actix_web::HttpResponse {
+                use ::actix_restful::Model;
                 let params = query.into_inner();
                 let result = #name::find(info.id.into(), &params, &state).await;
                 match result {
-                    Ok(res) => actix_web::HttpResponse::Ok().json(res),
-                    Err(err) => actix_web::HttpResponse::NotFound().body("ENTITY_NOT_FOUND")
+                    Ok(res) => ::actix_restful::__private::actix_web::HttpResponse::Ok().json(res),
+                    Err(err) => ::actix_restful::__private::actix_web::HttpResponse::NotFound().body("ENTITY_NOT_FOUND")
                 }
             }
             async fn http_delete(
-                info: actix_web::web::Path<ActixRestfulPath>,
-                query: actix_web::web::Query<#delete_query>,
-                state: actix_web::web::Data<#app_state>
-            ) -> actix_web::HttpResponse {
+                info: ::actix_restful::__private::actix_web::web::Path<ActixRestfulPath>,
+                query: ::actix_restful::__private::actix_web::web::Query<#delete_query>,
+                state: ::actix_restful::__private::actix_web::web::Data<#app_state>
+            ) -> ::actix_restful::__private::actix_web::HttpResponse {
+                use ::actix_restful::Model;
                 let params = query.into_inner();
                 let find_params: #find_query = Default::default();
                 let result = #name::find(info.id.into(), &find_params, &state).await;
@@ -158,11 +166,11 @@ fn impl_http_find_list_delete_macro(ast: &syn::DeriveInput) -> proc_macro::Token
                 match result {
                     Ok(entity) => {
                         match entity.delete(&params, &state).await {
-                            Ok(e) => actix_web::HttpResponse::Ok().json(e),
-                            Err(err) => actix_web::HttpResponse::InternalServerError().body(err.to_string())
+                            Ok(e) => ::actix_restful::__private::actix_web::HttpResponse::Ok().json(e),
+                            Err(err) => ::actix_restful::__private::actix_web::HttpResponse::InternalServerError().body(err.to_string())
                         }
                     }
-                    Err(err) => actix_web::HttpResponse::NotFound().body("ENTITY_NOT_FOUND")
+                    Err(err) => ::actix_restful::__private::actix_web::HttpResponse::NotFound().body("ENTITY_NOT_FOUND")
                 }
             }
         }
@@ -207,25 +215,28 @@ fn impl_http_update_macro(ast: &syn::DeriveInput) -> proc_macro::TokenStream {
     let id_check = if has_named_field(ast, "id") {
         quote! {
             if to_update.id != info.id {
-                return actix_web::HttpResponse::BadRequest().body("ID_MISMATCH");
+                return ::actix_restful::__private::actix_web::HttpResponse::BadRequest().body("ID_MISMATCH");
             }
         }
     } else {
         quote! {}
     };
     let gen = quote! {
-        #[derive(Deserialize)]
-        struct ActixRestfulUpdatePath {
+        #[derive(::actix_restful::__private::serde::Deserialize)]
+        #[serde(crate = "::actix_restful::__private::serde")]
+        #[doc(hidden)]
+        pub struct ActixRestfulUpdatePath {
             id: #id
         }
-        #[async_trait]
-        impl HttpUpdate<ActixRestfulUpdatePath, #query, #app_state> for #name {
+        #[::actix_restful::__private::async_trait]
+        impl ::actix_restful::HttpUpdate<ActixRestfulUpdatePath, #query, #app_state> for #name {
             async fn http_update(
-                info: actix_web::web::Path<ActixRestfulUpdatePath>,
-                payload: actix_web::web::Json<Box<#name>>,
-                query: actix_web::web::Query<#query>,
-                state: actix_web::web::Data<#app_state>
-            ) -> actix_web::HttpResponse {
+                info: ::actix_restful::__private::actix_web::web::Path<ActixRestfulUpdatePath>,
+                payload: ::actix_restful::__private::actix_web::web::Json<Box<#name>>,
+                query: ::actix_restful::__private::actix_web::web::Query<#query>,
+                state: ::actix_restful::__private::actix_web::web::Data<#app_state>
+            ) -> ::actix_restful::__private::actix_web::HttpResponse {
+                use ::actix_restful::{Model, UpdatableModel};
                 let to_update = payload.into_inner();
                 #id_check
                 let params = query.into_inner();
@@ -235,11 +246,11 @@ fn impl_http_update_macro(ast: &syn::DeriveInput) -> proc_macro::TokenStream {
                 match result {
                     Ok(entity) => {
                         match to_update.update(&params, &state).await {
-                            Ok(e) => actix_web::HttpResponse::Ok().json(e),
-                            Err(err) => actix_web::HttpResponse::InternalServerError().body(err.to_string())
+                            Ok(e) => ::actix_restful::__private::actix_web::HttpResponse::Ok().json(e),
+                            Err(err) => ::actix_restful::__private::actix_web::HttpResponse::InternalServerError().body(err.to_string())
                         }
                     }
-                    Err(err) => actix_web::HttpResponse::NotFound().body("ENTITY_NOT_FOUND")
+                    Err(err) => ::actix_restful::__private::actix_web::HttpResponse::NotFound().body("ENTITY_NOT_FOUND")
                 }
             }
         }

@@ -1,7 +1,3 @@
-### Disclaimer
-
-This project is still a WIP and not yet published on crates.io
-
 ### Motivation
 
 Building a Json Api for actix can be a lot of boilerplace code to write.
@@ -11,9 +7,25 @@ This project aims to simplify code generation for fast implementation of Json CR
 
 This workspace contains :
 
-- A CLI, to generate base models,
-- Derive macros to implement on models,
-- A function macro to configure routes on the actix server
+- `actix-restful`: the traits, the derive macros to implement on models (re-exported from `actix-restful-derive`), and the function macros to configure routes on the actix server,
+- `actix-restful-cli`: a CLI, to generate base models.
+
+### Installation
+
+`actix-restful` is the only crate to depend on: it re-exports the derive macros, as well as `async_trait` and `anyhow` which the traits are declared with.
+
+``` toml
+[dependencies]
+actix-restful = "0.6"
+actix-web = "4"
+serde = { version = "1", features = ["derive"] }
+```
+
+The model generator is installed once, as the `actix-restful` binary:
+
+``` bash
+cargo install actix-restful-cli
+```
 
 ### Note in code version
 
@@ -24,10 +36,16 @@ use version 0.6.x for actix web v4
 #### Declare Models
 
 ``` rust
-// src/models/Project.rs
+// src/project.rs
+
+use actix_restful::{
+    HttpCreate, HttpFindListDelete, HttpUpdate, Model, NewModel, UpdatableModel,
+    actix_restful_info, anyhow::Result, async_trait,
+};
+use serde::{Deserialize, Serialize};
 
 // actix App State (https://actix.rs/docs/application/)
-struct AppState {}
+pub struct AppState {}
 
 
 #[derive(Default, Deserialize)]
@@ -70,7 +88,7 @@ struct UpdatableProject {
 
 ``` rust
 
-// src/models/Project.rs
+// src/project.rs
 
 #[async_trait]
 impl Model<Id, FindQuery, ListQuery, ListResult, DeleteQuery, DeleteResult, AppState> for Project {
@@ -110,10 +128,13 @@ impl UpdatableModel<UpdatableProject, UpdateQuery, AppState> for UpdatableProjec
 ``` rust
 // src/main.rs
 
+mod project;
+
 use actix_restful::gen_endpoint;
-use models::{ Project, NewProject, UpdatableProject, AppState };
+use project::{ Project, NewProject, UpdatableProject, AppState };
 use actix_web::web;
 
+#[actix_web::main]
 async fn main() -> std::io::Result<()>{
     actix_web::HttpServer::new(|| {
         actix_web::App::new()
@@ -144,7 +165,7 @@ Operations are tagged with the model path (`project`) and identified by the acti
 
 ``` toml
 [dependencies]
-actix-restful = { version = "0.2", features = ["openapi"] }
+actix-restful = { version = "0.6", features = ["openapi"] }
 apistos = { version = "0.9", features = ["chrono", "swagger-ui"] }
 # apistos relies on its fork of schemars
 schemars = { package = "apistos-schemars", version = "0.8" }
@@ -203,7 +224,7 @@ actix-restful generate-model --name Project
 
 ```
 
-This wil generate a base model of name Project.rs at path ./Project.rs
+This will generate a base model in `project.rs`, in the working directory (usually `src`), to declare with `mod project;`. Its structs are public, and it imports `AppState` from the root of the crate (`use crate::AppState;`): declare your application state in `main.rs` or `lib.rs`, or change this import. The generated file only relies on `actix-restful` and `serde`, plus `sqlx` and `chrono` with the options below.
 
 With `--openapi`, the model, its query structs and its creatable / updatable structs also derive `JsonSchema` and `ApiComponent`, ready for `gen_documented_endpoint!` (see [OpenAPI documentation with apistos](#openapi-documentation-with-apistos)):
 
@@ -213,7 +234,7 @@ actix-restful generate-model --name Project --openapi
 
 ```
 
-With `--fields`, the CLI asks interactively for the name and type of each field (the type defaults to `String`, an empty name ends the input). The fields are added to `Project`, `NewProject` and `UpdatableProject`, next to the `id: Id` field that is always generated:
+With `--fields`, the CLI asks interactively for the name and type of each field (the type is picked by its number in the menu, or typed as any Rust type, and defaults to `String`; an empty name ends the input). The fields are added to `Project`, `NewProject` and `UpdatableProject`, next to the `id: Id` field that is always generated:
 
 ``` bash
 
@@ -221,11 +242,13 @@ actix-restful generate-model --name Project --fields
 Enter the model fields (empty name to finish), `id: Id` is already declared
 Wrap a type in `Option<T>` (e.g. `Option<i32>`) to make the field optional, its column is then nullable
 Field name: title
-Type of `title` [String]:
+  1) String  2) i32  3) i64  4) f64  5) bool  6) Option<String>  7) DateTime<Utc>  8) NaiveDateTime  9) NaiveDate  10) NaiveTime  11) Vec<u8>
+Type of `title` (number or custom type) [String]:
 Field name: stars
-Type of `stars` [String]: i32
+  1) String  2) i32  3) i64  4) f64  5) bool  6) Option<String>  7) DateTime<Utc>  8) NaiveDateTime  9) NaiveDate  10) NaiveTime  11) Vec<u8>
+Type of `stars` (number or custom type) [String]: 2
 Field name:
-Successfully generated model Project.rs
+Successfully generated model project.rs, declare it with `mod project;`
 
 ```
 

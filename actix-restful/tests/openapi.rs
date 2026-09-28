@@ -4,10 +4,9 @@
 #![allow(dead_code)]
 
 use actix_restful::{
-    gen_documented_endpoint, HttpCreate, HttpFindListDelete, HttpUpdate, Model, NewModel,
-    RestfulPathInfo, UpdatableModel,
+    actix_restful_info, gen_documented_endpoint, HttpCreate, HttpFindListDelete, HttpUpdate, Model,
+    NewModel, UpdatableModel,
 };
-use actix_restful_derive::{actix_restful_info, HttpCreate, HttpFindListDelete, HttpUpdate};
 use actix_web::{http::StatusCode, test, web, App};
 use anyhow::{anyhow, Result};
 use apistos::app::OpenApiWrapper;

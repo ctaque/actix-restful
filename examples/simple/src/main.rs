@@ -6,15 +6,11 @@ use actix_restful::{
     Model,
     NewModel,
     UpdatableModel,
+    actix_restful_info,
+    anyhow::Result,
+    async_trait,
     gen_endpoint,
-    RestfulPathInfo
 };
-use actix_restful_derive::{HttpCreate, HttpFindListDelete, HttpUpdate, actix_restful_info};
-use anyhow::Result;
-use async_trait::async_trait;
-use std::default::Default;
-use actix_web;
-use serde_json;
 use chrono::prelude::*;
 
 struct AppState {}
