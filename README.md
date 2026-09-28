@@ -277,4 +277,4 @@ actix-restful generate-model --name Project --fields --sqlx --migration --timest
 
 Look into folder examples
 
-The examples have a file called Insomnia.json which is a routing configuration file for [insomnia](https://insomnia.rest/)
+The examples have routing configuration file for [hoppscotch](https://hoppscotch.io/)
