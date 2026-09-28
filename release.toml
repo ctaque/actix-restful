@@ -1,0 +1,4 @@
+shared-version = true          # toutes les crates ont la même version
+tag-name = "v{{version}}"      # un seul tag pour le workspace
+consolidate-commits = true
+publish = false                # si tu ne publies pas sur crates.io
