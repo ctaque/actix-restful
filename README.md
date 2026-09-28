@@ -42,7 +42,7 @@ type Id = i64;
 
 #[derive(Default, Serialize, Deserialize, HttpFindListDelete)]
 #[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]
-#[actix_restful_info(scope = "/v1", path = "project")]
+#[actix_restful_info(path = "project")]
 struct Project {
     ...
 }
@@ -164,7 +164,7 @@ struct ListQuery {
 /// Doc comments are used as schema descriptions
 #[derive(Default, Serialize, Deserialize, JsonSchema, ApiComponent, HttpFindListDelete)]
 #[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]
-#[actix_restful_info(scope = "/v1", path = "project")]
+#[actix_restful_info(path = "project")]
 struct Project {
     ...
 }
