@@ -18,7 +18,7 @@ use std::default::Default;
 use actix_web;
 use chrono::prelude::*;
 
-use crate::shared::AppState;
+use crate::shared::{pagination, AppState};
 
 // Query structs are documented as query parameters
 #[derive(Default, Deserialize, JsonSchema, ApiComponent)]
@@ -27,6 +27,10 @@ struct FindQuery {}
 struct ListQuery {
     /// Number of items to skip
     offset: Option<usize>,
+    /// Maximum number of items to return (20 by default, 100 at most)
+    limit: Option<usize>,
+    /// Only return the items of this project
+    project_id: Option<i64>,
 }
 #[derive(Deserialize, JsonSchema, ApiComponent)]
 struct DeleteQuery {}
@@ -38,12 +42,13 @@ struct SaveQuery {}
 struct UpdateQuery {}
 type Id = i64;
 
-/// An item of the store
-#[derive(Default, Serialize, Deserialize, JsonSchema, ApiComponent, HttpFindListDelete)]
+/// An item of a project
+#[derive(Default, Serialize, Deserialize, JsonSchema, ApiComponent, sqlx::FromRow, HttpFindListDelete)]
 #[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]
 #[actix_restful_info(path = "item")]
 pub struct Item {
     id: Id,
+    project_id: i64,
     content: String,
     deleted_at: Option<DateTime<Utc>>,
     updated_at: Option<DateTime<Utc>>,
@@ -52,40 +57,41 @@ pub struct Item {
 
 #[async_trait]
 impl Model<Id, FindQuery, ListQuery, ListResult, DeleteQuery, DeleteResult, AppState> for Item {
-    async fn find(id: Id, _query: &FindQuery, _state: &AppState) -> Result<Box<Item>> {
-        // fetch from somwhere with id and return result
-        Ok(
-            Box::new(
-                Item {
-                    id,
-                    content: String::from("test"),
-                    deleted_at: None,
-                    updated_at: None,
-                    created_at: None,
-                }
-            )
+    async fn find(id: Id, _query: &FindQuery, state: &AppState) -> Result<Box<Item>> {
+        // Soft deleted items are not found anymore, which answers a 404
+        let item = sqlx::query_as::<_, Item>(
+            "SELECT * FROM items WHERE id = ? AND deleted_at IS NULL",
         )
+        .bind(id)
+        .fetch_one(&state.pool)
+        .await?;
+        Ok(Box::new(item))
     }
-    async fn list(query: &ListQuery, _state: &AppState) -> Result<ListResult> {
-        // list
-        let mut res = Vec::new();
-        let offset = query.offset.unwrap_or(0) as i64;
-        for i in offset..offset + 2 {
-            res.push(Item {
-                id: i,
-                content: String::from("test"),
-                deleted_at: None,
-                updated_at: None,
-                created_at: None,
-            });
-        }
-        Ok(res)
+    async fn list(query: &ListQuery, state: &AppState) -> Result<ListResult> {
+        let (offset, limit) = pagination(query.offset, query.limit);
+        let items = sqlx::query_as::<_, Item>(
+            "SELECT * FROM items
+             WHERE deleted_at IS NULL AND (?1 IS NULL OR project_id = ?1)
+             ORDER BY id
+             LIMIT ?2 OFFSET ?3",
+        )
+        .bind(query.project_id)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&state.pool)
+        .await?;
+        Ok(items)
     }
-    async fn delete(mut self: Self, _query: &DeleteQuery, _state: &AppState) -> Result<DeleteResult> {
-        // hard or soft delete
-        let utc: DateTime<Utc> = Utc::now();
-        self.deleted_at = Some(utc);
-        Ok(self)
+    async fn delete(self: Self, _query: &DeleteQuery, state: &AppState) -> Result<DeleteResult> {
+        // Soft delete: the row is kept, flagged with its deletion date
+        let item = sqlx::query_as::<_, Item>(
+            "UPDATE items SET deleted_at = ? WHERE id = ? RETURNING *",
+        )
+        .bind(Utc::now())
+        .bind(self.id)
+        .fetch_one(&state.pool)
+        .await?;
+        Ok(item)
     }
 }
 
@@ -93,25 +99,39 @@ impl Model<Id, FindQuery, ListQuery, ListResult, DeleteQuery, DeleteResult, AppS
 #[derive(Serialize, Deserialize, JsonSchema, ApiComponent, HttpCreate)]
 #[http_create(SaveQuery, AppState)]
 struct NewItem {
+    /// The project the item belongs to
+    project_id: i64,
     content: String,
 }
 #[async_trait]
 impl NewModel<Item, SaveQuery, AppState> for NewItem {
-    async fn save(self: Self, _query: &SaveQuery, _state: &AppState) -> Result<Item> {
-        // persist, and return Item entity
-        let utc: DateTime<Utc> = Utc::now();
-        Ok(Item{
-            id: 1,
-            content: self.content,
-            created_at: Some(utc),
-            deleted_at: None,
-            updated_at: None,
-        })
+    async fn save(self: Self, _query: &SaveQuery, state: &AppState) -> Result<Item> {
+        let project_exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM projects WHERE id = ? AND deleted_at IS NULL)",
+        )
+        .bind(self.project_id)
+        .fetch_one(&state.pool)
+        .await?;
+        anyhow::ensure!(project_exists, "PROJECT_NOT_FOUND");
+
+        let now = Utc::now();
+        let item = sqlx::query_as::<_, Item>(
+            "INSERT INTO items (project_id, content, created_at, updated_at)
+             VALUES (?, ?, ?, ?)
+             RETURNING *",
+        )
+        .bind(self.project_id)
+        .bind(self.content)
+        .bind(now)
+        .bind(now)
+        .fetch_one(&state.pool)
+        .await?;
+        Ok(item)
     }
 }
 
 /// The payload to update an item
-#[derive(Serialize, Deserialize, JsonSchema, ApiComponent, HttpUpdate)]
+#[derive(Serialize, Deserialize, JsonSchema, ApiComponent, sqlx::FromRow, HttpUpdate)]
 #[http_update(Id, UpdateQuery, Item, FindQuery, AppState)]
 struct UpdatableItem {
     id: Id,
@@ -120,11 +140,18 @@ struct UpdatableItem {
 }
 #[async_trait]
 impl UpdatableModel<UpdatableItem, UpdateQuery, AppState> for UpdatableItem {
-    async fn update(mut self: Self, _query: &UpdateQuery, _state: &AppState) -> Result<UpdatableItem> {
-        // update in db
-        let utc: DateTime<Utc> = Utc::now();
-        self.updated_at = Some(utc);
-        Ok(self)
+    async fn update(self: Self, _query: &UpdateQuery, state: &AppState) -> Result<UpdatableItem> {
+        let item = sqlx::query_as::<_, UpdatableItem>(
+            "UPDATE items SET content = ?, updated_at = ?
+             WHERE id = ? AND deleted_at IS NULL
+             RETURNING id, content, updated_at",
+        )
+        .bind(self.content)
+        .bind(Utc::now())
+        .bind(self.id)
+        .fetch_one(&state.pool)
+        .await?;
+        Ok(item)
     }
 }
 

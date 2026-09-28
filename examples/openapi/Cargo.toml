@@ -16,3 +16,4 @@ async-trait.workspace = true
 chrono.workspace = true
 schemars.workspace = true
 serde.workspace = true
+sqlx.workspace = true
