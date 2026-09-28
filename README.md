@@ -213,6 +213,66 @@ actix-restful generate-model --name Project --openapi
 
 ```
 
+With `--fields`, the CLI asks interactively for the name and type of each field (the type defaults to `String`, an empty name ends the input). The fields are added to `Project`, `NewProject` and `UpdatableProject`, next to the `id: Id` field that is always generated:
+
+``` bash
+
+actix-restful generate-model --name Project --fields
+Enter the model fields (empty name to finish), `id: Id` is already declared
+Field name: title
+Type of `title` [String]:
+Field name: stars
+Type of `stars` [String]: i32
+Field name:
+Successfully generated model Project.rs
+
+```
+
+With `--sqlx` (which requires `--fields`, and at least one field), the `find`, `list`, `delete`, `save` and `update` functions are filled with [sqlx](https://docs.rs/sqlx) queries on the `project` table, run on the `pool` field of your `AppState`. `Project` and `UpdatableProject` also derive `sqlx::FromRow`. The queries target SQLite by default, `--postgres` or `--mysql` target PostgreSQL or MySQL (`--sqlite` makes the default explicit). SQLite and PostgreSQL queries use `$N` placeholders and `RETURNING`, MySQL ones use `?` placeholders and select the row after the insert (with `last_insert_id()`) and the update, and before the delete:
+
+``` bash
+
+actix-restful generate-model --name Project --fields --sqlx
+
+```
+
+With `--migration` (which also requires `--fields`), the CLI creates the migration of the `project` table for the targeted database in `<timestamp>_create_project.sql` of the `migrations` folder next to `src` (the parent `migrations` folder when run from inside `src`), ready for `sqlx migrate run` or `sqlx::migrate!()`. Each field type is mapped to the column type sqlx decodes it from, and `Option<T>` fields are nullable:
+
+| Rust type | SQLite | PostgreSQL | MySQL |
+|---|---|---|---|
+| `String` | `TEXT` | `TEXT` | `VARCHAR(255)` |
+| `i8` | `INT4` | | `TINYINT` |
+| `i16` | `INT4` | `SMALLINT` | `SMALLINT` |
+| `i32` | `INT4` | `INTEGER` | `INT` |
+| `i64` | `INTEGER` | `BIGINT` | `BIGINT` |
+| `u8`, `u16`, `u32` | `INT4`, `INT4`, `INTEGER` | | `TINYINT UNSIGNED`, `SMALLINT UNSIGNED`, `INT UNSIGNED` |
+| `u64` | | | `BIGINT UNSIGNED` |
+| `f32` | `REAL` | `REAL` | `FLOAT` |
+| `f64` | `REAL` | `DOUBLE PRECISION` | `DOUBLE` |
+| `bool` | `BOOLEAN` | `BOOLEAN` | `BOOLEAN` |
+| `DateTime<Utc>` | `DATETIME` | `TIMESTAMPTZ` | `DATETIME(6)` |
+| `NaiveDateTime` | `DATETIME` | `TIMESTAMP` | `DATETIME(6)` |
+| `NaiveDate` | `DATE` | `DATE` | `DATE` |
+| `NaiveTime` | `TIME` | `TIME` | `TIME(6)` |
+| `Vec<u8>` | `BLOB` | `BYTEA` | `BLOB` |
+| `Vec<String>`, `Vec<i16>`, `Vec<i32>`, `Vec<i64>`, `Vec<f64>`, `Vec<bool>` | | `TEXT[]`, `SMALLINT[]`, `INTEGER[]`, `BIGINT[]`, `DOUBLE PRECISION[]`, `BOOLEAN[]` | |
+
+The `id` column is `INTEGER PRIMARY KEY AUTOINCREMENT` on SQLite, `BIGSERIAL PRIMARY KEY` on PostgreSQL and `BIGINT AUTO_INCREMENT PRIMARY KEY` on MySQL. The chrono import is added to the model for the date types. With `--migration`, a type without a column type in the targeted database (like `Vec<String>` on SQLite) is refused when prompting for the fields:
+
+``` bash
+
+actix-restful generate-model --name Project --fields --sqlx --migration --postgres
+
+```
+
+With `--timestamps`, `Project` gets `created_at`, `updated_at` and `deleted_at` fields and `UpdatableProject` an `updated_at` field, all typed `Option<DateTime<Utc>>` from [chrono](https://docs.rs/chrono) (add `chrono` with its `serde` feature to your dependencies, and the `chrono` feature of sqlx or apistos when you use `--sqlx` or `--openapi`). With `--sqlx`, `save` sets `created_at` and `updated_at` to `Utc::now()`, `update` refreshes `updated_at`, and `delete` is a soft delete: it sets `deleted_at` to `Utc::now()` instead of removing the row, and `find`, `list` and `update` skip the rows whose `deleted_at` is set (a deleted row answers like a missing one). With `--migration`, the table gets nullable `created_at`, `updated_at` and `deleted_at` columns of the `DateTime<Utc>` column type:
+
+``` bash
+
+actix-restful generate-model --name Project --fields --sqlx --migration --timestamps
+
+```
+
 #### Examples :
 
 Look into folder examples

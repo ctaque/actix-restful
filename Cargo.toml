@@ -9,13 +9,13 @@ members = [
 ]
 
 [workspace.package]
-version = "0.2.3"
+version = "0.4.8"
 edition = "2021"
 
 [workspace.dependencies]
 # Crates internes
-actix-restful = { version = "0.2.0", path = "actix-restful" }
-actix-restful-derive = { version = "0.2.0", path = "actix-restful-derive" }
+actix-restful = { version = "0.4.8", path = "actix-restful" }
+actix-restful-derive = { version = "0.4.8", path = "actix-restful-derive" }
 
 # Dépendances externes
 actix-web = "4"
@@ -29,6 +29,6 @@ proc-macro2 = "1.0.34"
 quote = "1.0.10"
 serde = { version = "1.0.132", features = ["derive"] }
 serde_json = "1.0.73"
-sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "chrono", "macros", "migrate"] }
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "postgres", "chrono", "macros", "migrate"] }
 structopt = "0.3"
 syn = { version = "1.0.82", features = ["full"] }

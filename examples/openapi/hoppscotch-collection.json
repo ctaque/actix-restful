@@ -1,0 +1,1858 @@
+{
+  "v": 12,
+  "name": "MyApp API",
+  "folders": [
+    {
+      "v": 12,
+      "name": "model1",
+      "folders": [],
+      "requests": [
+        {
+          "v": "17",
+          "name": "Find one model1 by id",
+          "method": "GET",
+          "endpoint": "<<baseUrl>>/v1/model1/<<id>>",
+          "params": [],
+          "headers": [],
+          "preRequestScript": "",
+          "testScript": "",
+          "auth": {
+            "authType": "inherit",
+            "authActive": true
+          },
+          "body": {
+            "contentType": null,
+            "body": null
+          },
+          "requestVariables": [
+            {
+              "key": "id",
+              "value": "",
+              "active": true
+            }
+          ],
+          "responses": {
+            "The model1 found": {
+              "name": "The model1 found",
+              "originalRequest": {
+                "v": "6",
+                "name": "Find one model1 by id",
+                "method": "GET",
+                "endpoint": "<<baseUrl>>/v1/model1/<<id>>",
+                "headers": [],
+                "params": [],
+                "body": {
+                  "contentType": null,
+                  "body": null
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": [
+                  {
+                    "key": "id",
+                    "value": "",
+                    "active": true
+                  }
+                ]
+              },
+              "status": "OK",
+              "code": 200,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"bool\": true,\n  \"created_at\": \"string\",\n  \"dt\": \"string\",\n  \"f64\": 0,\n  \"i32\": 0,\n  \"i64\": 0,\n  \"id\": 0,\n  \"nd\": \"string\",\n  \"ndt\": \"string\",\n  \"ndt2\": \"string\",\n  \"nt\": \"string\",\n  \"opt_str\": \"string\",\n  \"string\": \"string\",\n  \"updated_at\": \"string\",\n  \"vecu8\": [\n    0\n  ]\n}"
+            },
+            "ENTITY_NOT_FOUND: no entity has this id": {
+              "name": "ENTITY_NOT_FOUND: no entity has this id",
+              "originalRequest": {
+                "v": "6",
+                "name": "Find one model1 by id",
+                "method": "GET",
+                "endpoint": "<<baseUrl>>/v1/model1/<<id>>",
+                "headers": [],
+                "params": [],
+                "body": {
+                  "contentType": null,
+                  "body": null
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": [
+                  {
+                    "key": "id",
+                    "value": "",
+                    "active": true
+                  }
+                ]
+              },
+              "status": "Not Found",
+              "code": 404,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "text/plain"
+                }
+              ],
+              "body": ""
+            }
+          },
+          "description": null
+        },
+        {
+          "v": "17",
+          "name": "Update one model1 by id",
+          "method": "PUT",
+          "endpoint": "<<baseUrl>>/v1/model1/<<id>>",
+          "params": [],
+          "headers": [],
+          "preRequestScript": "",
+          "testScript": "",
+          "auth": {
+            "authType": "inherit",
+            "authActive": true
+          },
+          "body": {
+            "contentType": "application/json",
+            "body": "{\n  \"bool\": true,\n  \"dt\": \"string\",\n  \"f64\": 0,\n  \"i32\": 0,\n  \"i64\": 0,\n  \"id\": 0,\n  \"nd\": \"string\",\n  \"ndt\": \"string\",\n  \"ndt2\": \"string\",\n  \"nt\": \"string\",\n  \"opt_str\": \"string\",\n  \"string\": \"string\",\n  \"updated_at\": \"string\",\n  \"vecu8\": [\n    0\n  ]\n}"
+          },
+          "requestVariables": [
+            {
+              "key": "id",
+              "value": "",
+              "active": true
+            }
+          ],
+          "responses": {
+            "The updated model1": {
+              "name": "The updated model1",
+              "originalRequest": {
+                "v": "6",
+                "name": "Update one model1 by id",
+                "method": "PUT",
+                "endpoint": "<<baseUrl>>/v1/model1/<<id>>",
+                "headers": [],
+                "params": [],
+                "body": {
+                  "contentType": "application/json",
+                  "body": "{\n  \"bool\": true,\n  \"dt\": \"string\",\n  \"f64\": 0,\n  \"i32\": 0,\n  \"i64\": 0,\n  \"id\": 0,\n  \"nd\": \"string\",\n  \"ndt\": \"string\",\n  \"ndt2\": \"string\",\n  \"nt\": \"string\",\n  \"opt_str\": \"string\",\n  \"string\": \"string\",\n  \"updated_at\": \"string\",\n  \"vecu8\": [\n    0\n  ]\n}"
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": [
+                  {
+                    "key": "id",
+                    "value": "",
+                    "active": true
+                  }
+                ]
+              },
+              "status": "OK",
+              "code": 200,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"bool\": true,\n  \"dt\": \"string\",\n  \"f64\": 0,\n  \"i32\": 0,\n  \"i64\": 0,\n  \"id\": 0,\n  \"nd\": \"string\",\n  \"ndt\": \"string\",\n  \"ndt2\": \"string\",\n  \"nt\": \"string\",\n  \"opt_str\": \"string\",\n  \"string\": \"string\",\n  \"updated_at\": \"string\",\n  \"vecu8\": [\n    0\n  ]\n}"
+            },
+            "ID_MISMATCH: the payload id differs from the path id": {
+              "name": "ID_MISMATCH: the payload id differs from the path id",
+              "originalRequest": {
+                "v": "6",
+                "name": "Update one model1 by id",
+                "method": "PUT",
+                "endpoint": "<<baseUrl>>/v1/model1/<<id>>",
+                "headers": [],
+                "params": [],
+                "body": {
+                  "contentType": "application/json",
+                  "body": "{\n  \"bool\": true,\n  \"dt\": \"string\",\n  \"f64\": 0,\n  \"i32\": 0,\n  \"i64\": 0,\n  \"id\": 0,\n  \"nd\": \"string\",\n  \"ndt\": \"string\",\n  \"ndt2\": \"string\",\n  \"nt\": \"string\",\n  \"opt_str\": \"string\",\n  \"string\": \"string\",\n  \"updated_at\": \"string\",\n  \"vecu8\": [\n    0\n  ]\n}"
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": [
+                  {
+                    "key": "id",
+                    "value": "",
+                    "active": true
+                  }
+                ]
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "text/plain"
+                }
+              ],
+              "body": ""
+            },
+            "ENTITY_NOT_FOUND: no entity has this id": {
+              "name": "ENTITY_NOT_FOUND: no entity has this id",
+              "originalRequest": {
+                "v": "6",
+                "name": "Update one model1 by id",
+                "method": "PUT",
+                "endpoint": "<<baseUrl>>/v1/model1/<<id>>",
+                "headers": [],
+                "params": [],
+                "body": {
+                  "contentType": "application/json",
+                  "body": "{\n  \"bool\": true,\n  \"dt\": \"string\",\n  \"f64\": 0,\n  \"i32\": 0,\n  \"i64\": 0,\n  \"id\": 0,\n  \"nd\": \"string\",\n  \"ndt\": \"string\",\n  \"ndt2\": \"string\",\n  \"nt\": \"string\",\n  \"opt_str\": \"string\",\n  \"string\": \"string\",\n  \"updated_at\": \"string\",\n  \"vecu8\": [\n    0\n  ]\n}"
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": [
+                  {
+                    "key": "id",
+                    "value": "",
+                    "active": true
+                  }
+                ]
+              },
+              "status": "Not Found",
+              "code": 404,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "text/plain"
+                }
+              ],
+              "body": ""
+            },
+            "The update failed": {
+              "name": "The update failed",
+              "originalRequest": {
+                "v": "6",
+                "name": "Update one model1 by id",
+                "method": "PUT",
+                "endpoint": "<<baseUrl>>/v1/model1/<<id>>",
+                "headers": [],
+                "params": [],
+                "body": {
+                  "contentType": "application/json",
+                  "body": "{\n  \"bool\": true,\n  \"dt\": \"string\",\n  \"f64\": 0,\n  \"i32\": 0,\n  \"i64\": 0,\n  \"id\": 0,\n  \"nd\": \"string\",\n  \"ndt\": \"string\",\n  \"ndt2\": \"string\",\n  \"nt\": \"string\",\n  \"opt_str\": \"string\",\n  \"string\": \"string\",\n  \"updated_at\": \"string\",\n  \"vecu8\": [\n    0\n  ]\n}"
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": [
+                  {
+                    "key": "id",
+                    "value": "",
+                    "active": true
+                  }
+                ]
+              },
+              "status": "Internal Server Error",
+              "code": 500,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "text/plain"
+                }
+              ],
+              "body": ""
+            }
+          },
+          "description": null
+        },
+        {
+          "v": "17",
+          "name": "Delete one model1 by id",
+          "method": "DELETE",
+          "endpoint": "<<baseUrl>>/v1/model1/<<id>>",
+          "params": [],
+          "headers": [],
+          "preRequestScript": "",
+          "testScript": "",
+          "auth": {
+            "authType": "inherit",
+            "authActive": true
+          },
+          "body": {
+            "contentType": null,
+            "body": null
+          },
+          "requestVariables": [
+            {
+              "key": "id",
+              "value": "",
+              "active": true
+            }
+          ],
+          "responses": {
+            "The deleted model1": {
+              "name": "The deleted model1",
+              "originalRequest": {
+                "v": "6",
+                "name": "Delete one model1 by id",
+                "method": "DELETE",
+                "endpoint": "<<baseUrl>>/v1/model1/<<id>>",
+                "headers": [],
+                "params": [],
+                "body": {
+                  "contentType": null,
+                  "body": null
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": [
+                  {
+                    "key": "id",
+                    "value": "",
+                    "active": true
+                  }
+                ]
+              },
+              "status": "OK",
+              "code": 200,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"bool\": true,\n  \"created_at\": \"string\",\n  \"dt\": \"string\",\n  \"f64\": 0,\n  \"i32\": 0,\n  \"i64\": 0,\n  \"id\": 0,\n  \"nd\": \"string\",\n  \"ndt\": \"string\",\n  \"ndt2\": \"string\",\n  \"nt\": \"string\",\n  \"opt_str\": \"string\",\n  \"string\": \"string\",\n  \"updated_at\": \"string\",\n  \"vecu8\": [\n    0\n  ]\n}"
+            },
+            "ENTITY_NOT_FOUND: no entity has this id": {
+              "name": "ENTITY_NOT_FOUND: no entity has this id",
+              "originalRequest": {
+                "v": "6",
+                "name": "Delete one model1 by id",
+                "method": "DELETE",
+                "endpoint": "<<baseUrl>>/v1/model1/<<id>>",
+                "headers": [],
+                "params": [],
+                "body": {
+                  "contentType": null,
+                  "body": null
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": [
+                  {
+                    "key": "id",
+                    "value": "",
+                    "active": true
+                  }
+                ]
+              },
+              "status": "Not Found",
+              "code": 404,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "text/plain"
+                }
+              ],
+              "body": ""
+            },
+            "The deletion failed": {
+              "name": "The deletion failed",
+              "originalRequest": {
+                "v": "6",
+                "name": "Delete one model1 by id",
+                "method": "DELETE",
+                "endpoint": "<<baseUrl>>/v1/model1/<<id>>",
+                "headers": [],
+                "params": [],
+                "body": {
+                  "contentType": null,
+                  "body": null
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": [
+                  {
+                    "key": "id",
+                    "value": "",
+                    "active": true
+                  }
+                ]
+              },
+              "status": "Internal Server Error",
+              "code": 500,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "text/plain"
+                }
+              ],
+              "body": ""
+            }
+          },
+          "description": null
+        },
+        {
+          "v": "17",
+          "name": "List the model1 entities",
+          "method": "GET",
+          "endpoint": "<<baseUrl>>/v1/model1",
+          "params": [
+            {
+              "key": "limit",
+              "value": "",
+              "active": true,
+              "description": "Maximum number of rows to return (20 by default, 100 at most)"
+            },
+            {
+              "key": "offset",
+              "value": "",
+              "active": true,
+              "description": "Number of rows to skip"
+            }
+          ],
+          "headers": [],
+          "preRequestScript": "",
+          "testScript": "",
+          "auth": {
+            "authType": "inherit",
+            "authActive": true
+          },
+          "body": {
+            "contentType": null,
+            "body": null
+          },
+          "requestVariables": [],
+          "responses": {
+            "The model1 entities": {
+              "name": "The model1 entities",
+              "originalRequest": {
+                "v": "6",
+                "name": "List the model1 entities",
+                "method": "GET",
+                "endpoint": "<<baseUrl>>/v1/model1",
+                "headers": [],
+                "params": [
+                  {
+                    "key": "limit",
+                    "value": "",
+                    "active": true,
+                    "description": "Maximum number of rows to return (20 by default, 100 at most)"
+                  },
+                  {
+                    "key": "offset",
+                    "value": "",
+                    "active": true,
+                    "description": "Number of rows to skip"
+                  }
+                ],
+                "body": {
+                  "contentType": null,
+                  "body": null
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": []
+              },
+              "status": "OK",
+              "code": 200,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "[\n  {\n    \"bool\": true,\n    \"created_at\": \"string\",\n    \"dt\": \"string\",\n    \"f64\": 0,\n    \"i32\": 0,\n    \"i64\": 0,\n    \"id\": 0,\n    \"nd\": \"string\",\n    \"ndt\": \"string\",\n    \"ndt2\": \"string\",\n    \"nt\": \"string\",\n    \"opt_str\": \"string\",\n    \"string\": \"string\",\n    \"updated_at\": \"string\",\n    \"vecu8\": [\n      0\n    ]\n  }\n]"
+            },
+            "The listing failed": {
+              "name": "The listing failed",
+              "originalRequest": {
+                "v": "6",
+                "name": "List the model1 entities",
+                "method": "GET",
+                "endpoint": "<<baseUrl>>/v1/model1",
+                "headers": [],
+                "params": [
+                  {
+                    "key": "limit",
+                    "value": "",
+                    "active": true,
+                    "description": "Maximum number of rows to return (20 by default, 100 at most)"
+                  },
+                  {
+                    "key": "offset",
+                    "value": "",
+                    "active": true,
+                    "description": "Number of rows to skip"
+                  }
+                ],
+                "body": {
+                  "contentType": null,
+                  "body": null
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": []
+              },
+              "status": "Internal Server Error",
+              "code": 500,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "text/plain"
+                }
+              ],
+              "body": ""
+            }
+          },
+          "description": null
+        },
+        {
+          "v": "17",
+          "name": "Create one model1",
+          "method": "POST",
+          "endpoint": "<<baseUrl>>/v1/model1",
+          "params": [],
+          "headers": [],
+          "preRequestScript": "",
+          "testScript": "",
+          "auth": {
+            "authType": "inherit",
+            "authActive": true
+          },
+          "body": {
+            "contentType": "application/json",
+            "body": "{\n  \"bool\": true,\n  \"dt\": \"string\",\n  \"f64\": 0,\n  \"i32\": 0,\n  \"i64\": 0,\n  \"nd\": \"string\",\n  \"ndt\": \"string\",\n  \"ndt2\": \"string\",\n  \"nt\": \"string\",\n  \"opt_str\": \"string\",\n  \"string\": \"string\",\n  \"vecu8\": [\n    0\n  ]\n}"
+          },
+          "requestVariables": [],
+          "responses": {
+            "The created model1": {
+              "name": "The created model1",
+              "originalRequest": {
+                "v": "6",
+                "name": "Create one model1",
+                "method": "POST",
+                "endpoint": "<<baseUrl>>/v1/model1",
+                "headers": [],
+                "params": [],
+                "body": {
+                  "contentType": "application/json",
+                  "body": "{\n  \"bool\": true,\n  \"dt\": \"string\",\n  \"f64\": 0,\n  \"i32\": 0,\n  \"i64\": 0,\n  \"nd\": \"string\",\n  \"ndt\": \"string\",\n  \"ndt2\": \"string\",\n  \"nt\": \"string\",\n  \"opt_str\": \"string\",\n  \"string\": \"string\",\n  \"vecu8\": [\n    0\n  ]\n}"
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": []
+              },
+              "status": "OK",
+              "code": 200,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"bool\": true,\n  \"created_at\": \"string\",\n  \"dt\": \"string\",\n  \"f64\": 0,\n  \"i32\": 0,\n  \"i64\": 0,\n  \"id\": 0,\n  \"nd\": \"string\",\n  \"ndt\": \"string\",\n  \"ndt2\": \"string\",\n  \"nt\": \"string\",\n  \"opt_str\": \"string\",\n  \"string\": \"string\",\n  \"updated_at\": \"string\",\n  \"vecu8\": [\n    0\n  ]\n}"
+            },
+            "The creation failed": {
+              "name": "The creation failed",
+              "originalRequest": {
+                "v": "6",
+                "name": "Create one model1",
+                "method": "POST",
+                "endpoint": "<<baseUrl>>/v1/model1",
+                "headers": [],
+                "params": [],
+                "body": {
+                  "contentType": "application/json",
+                  "body": "{\n  \"bool\": true,\n  \"dt\": \"string\",\n  \"f64\": 0,\n  \"i32\": 0,\n  \"i64\": 0,\n  \"nd\": \"string\",\n  \"ndt\": \"string\",\n  \"ndt2\": \"string\",\n  \"nt\": \"string\",\n  \"opt_str\": \"string\",\n  \"string\": \"string\",\n  \"vecu8\": [\n    0\n  ]\n}"
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": []
+              },
+              "status": "Internal Server Error",
+              "code": 500,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "text/plain"
+                }
+              ],
+              "body": ""
+            }
+          },
+          "description": null
+        }
+      ],
+      "auth": {
+        "authType": "inherit",
+        "authActive": true
+      },
+      "headers": [],
+      "variables": [],
+      "description": null,
+      "preRequestScript": "",
+      "testScript": ""
+    },
+    {
+      "v": 12,
+      "name": "model2",
+      "folders": [],
+      "requests": [
+        {
+          "v": "17",
+          "name": "Find one model2 by id",
+          "method": "GET",
+          "endpoint": "<<baseUrl>>/v1/model2/<<id>>",
+          "params": [],
+          "headers": [],
+          "preRequestScript": "",
+          "testScript": "",
+          "auth": {
+            "authType": "inherit",
+            "authActive": true
+          },
+          "body": {
+            "contentType": null,
+            "body": null
+          },
+          "requestVariables": [
+            {
+              "key": "id",
+              "value": "",
+              "active": true
+            }
+          ],
+          "responses": {
+            "The model2 found": {
+              "name": "The model2 found",
+              "originalRequest": {
+                "v": "6",
+                "name": "Find one model2 by id",
+                "method": "GET",
+                "endpoint": "<<baseUrl>>/v1/model2/<<id>>",
+                "headers": [],
+                "params": [],
+                "body": {
+                  "contentType": null,
+                  "body": null
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": [
+                  {
+                    "key": "id",
+                    "value": "",
+                    "active": true
+                  }
+                ]
+              },
+              "status": "OK",
+              "code": 200,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"created_at\": \"string\",\n  \"deleted_at\": \"string\",\n  \"field1\": \"string\",\n  \"id\": 0,\n  \"updated_at\": \"string\"\n}"
+            },
+            "ENTITY_NOT_FOUND: no entity has this id": {
+              "name": "ENTITY_NOT_FOUND: no entity has this id",
+              "originalRequest": {
+                "v": "6",
+                "name": "Find one model2 by id",
+                "method": "GET",
+                "endpoint": "<<baseUrl>>/v1/model2/<<id>>",
+                "headers": [],
+                "params": [],
+                "body": {
+                  "contentType": null,
+                  "body": null
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": [
+                  {
+                    "key": "id",
+                    "value": "",
+                    "active": true
+                  }
+                ]
+              },
+              "status": "Not Found",
+              "code": 404,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "text/plain"
+                }
+              ],
+              "body": ""
+            }
+          },
+          "description": null
+        },
+        {
+          "v": "17",
+          "name": "Update one model2 by id",
+          "method": "PUT",
+          "endpoint": "<<baseUrl>>/v1/model2/<<id>>",
+          "params": [],
+          "headers": [],
+          "preRequestScript": "",
+          "testScript": "",
+          "auth": {
+            "authType": "inherit",
+            "authActive": true
+          },
+          "body": {
+            "contentType": "application/json",
+            "body": "{\n  \"field1\": \"string\",\n  \"id\": 0,\n  \"updated_at\": \"string\"\n}"
+          },
+          "requestVariables": [
+            {
+              "key": "id",
+              "value": "",
+              "active": true
+            }
+          ],
+          "responses": {
+            "The updated model2": {
+              "name": "The updated model2",
+              "originalRequest": {
+                "v": "6",
+                "name": "Update one model2 by id",
+                "method": "PUT",
+                "endpoint": "<<baseUrl>>/v1/model2/<<id>>",
+                "headers": [],
+                "params": [],
+                "body": {
+                  "contentType": "application/json",
+                  "body": "{\n  \"field1\": \"string\",\n  \"id\": 0,\n  \"updated_at\": \"string\"\n}"
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": [
+                  {
+                    "key": "id",
+                    "value": "",
+                    "active": true
+                  }
+                ]
+              },
+              "status": "OK",
+              "code": 200,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"field1\": \"string\",\n  \"id\": 0,\n  \"updated_at\": \"string\"\n}"
+            },
+            "ID_MISMATCH: the payload id differs from the path id": {
+              "name": "ID_MISMATCH: the payload id differs from the path id",
+              "originalRequest": {
+                "v": "6",
+                "name": "Update one model2 by id",
+                "method": "PUT",
+                "endpoint": "<<baseUrl>>/v1/model2/<<id>>",
+                "headers": [],
+                "params": [],
+                "body": {
+                  "contentType": "application/json",
+                  "body": "{\n  \"field1\": \"string\",\n  \"id\": 0,\n  \"updated_at\": \"string\"\n}"
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": [
+                  {
+                    "key": "id",
+                    "value": "",
+                    "active": true
+                  }
+                ]
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "text/plain"
+                }
+              ],
+              "body": ""
+            },
+            "ENTITY_NOT_FOUND: no entity has this id": {
+              "name": "ENTITY_NOT_FOUND: no entity has this id",
+              "originalRequest": {
+                "v": "6",
+                "name": "Update one model2 by id",
+                "method": "PUT",
+                "endpoint": "<<baseUrl>>/v1/model2/<<id>>",
+                "headers": [],
+                "params": [],
+                "body": {
+                  "contentType": "application/json",
+                  "body": "{\n  \"field1\": \"string\",\n  \"id\": 0,\n  \"updated_at\": \"string\"\n}"
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": [
+                  {
+                    "key": "id",
+                    "value": "",
+                    "active": true
+                  }
+                ]
+              },
+              "status": "Not Found",
+              "code": 404,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "text/plain"
+                }
+              ],
+              "body": ""
+            },
+            "The update failed": {
+              "name": "The update failed",
+              "originalRequest": {
+                "v": "6",
+                "name": "Update one model2 by id",
+                "method": "PUT",
+                "endpoint": "<<baseUrl>>/v1/model2/<<id>>",
+                "headers": [],
+                "params": [],
+                "body": {
+                  "contentType": "application/json",
+                  "body": "{\n  \"field1\": \"string\",\n  \"id\": 0,\n  \"updated_at\": \"string\"\n}"
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": [
+                  {
+                    "key": "id",
+                    "value": "",
+                    "active": true
+                  }
+                ]
+              },
+              "status": "Internal Server Error",
+              "code": 500,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "text/plain"
+                }
+              ],
+              "body": ""
+            }
+          },
+          "description": null
+        },
+        {
+          "v": "17",
+          "name": "Delete one model2 by id",
+          "method": "DELETE",
+          "endpoint": "<<baseUrl>>/v1/model2/<<id>>",
+          "params": [],
+          "headers": [],
+          "preRequestScript": "",
+          "testScript": "",
+          "auth": {
+            "authType": "inherit",
+            "authActive": true
+          },
+          "body": {
+            "contentType": null,
+            "body": null
+          },
+          "requestVariables": [
+            {
+              "key": "id",
+              "value": "",
+              "active": true
+            }
+          ],
+          "responses": {
+            "The deleted model2": {
+              "name": "The deleted model2",
+              "originalRequest": {
+                "v": "6",
+                "name": "Delete one model2 by id",
+                "method": "DELETE",
+                "endpoint": "<<baseUrl>>/v1/model2/<<id>>",
+                "headers": [],
+                "params": [],
+                "body": {
+                  "contentType": null,
+                  "body": null
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": [
+                  {
+                    "key": "id",
+                    "value": "",
+                    "active": true
+                  }
+                ]
+              },
+              "status": "OK",
+              "code": 200,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"created_at\": \"string\",\n  \"deleted_at\": \"string\",\n  \"field1\": \"string\",\n  \"id\": 0,\n  \"updated_at\": \"string\"\n}"
+            },
+            "ENTITY_NOT_FOUND: no entity has this id": {
+              "name": "ENTITY_NOT_FOUND: no entity has this id",
+              "originalRequest": {
+                "v": "6",
+                "name": "Delete one model2 by id",
+                "method": "DELETE",
+                "endpoint": "<<baseUrl>>/v1/model2/<<id>>",
+                "headers": [],
+                "params": [],
+                "body": {
+                  "contentType": null,
+                  "body": null
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": [
+                  {
+                    "key": "id",
+                    "value": "",
+                    "active": true
+                  }
+                ]
+              },
+              "status": "Not Found",
+              "code": 404,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "text/plain"
+                }
+              ],
+              "body": ""
+            },
+            "The deletion failed": {
+              "name": "The deletion failed",
+              "originalRequest": {
+                "v": "6",
+                "name": "Delete one model2 by id",
+                "method": "DELETE",
+                "endpoint": "<<baseUrl>>/v1/model2/<<id>>",
+                "headers": [],
+                "params": [],
+                "body": {
+                  "contentType": null,
+                  "body": null
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": [
+                  {
+                    "key": "id",
+                    "value": "",
+                    "active": true
+                  }
+                ]
+              },
+              "status": "Internal Server Error",
+              "code": 500,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "text/plain"
+                }
+              ],
+              "body": ""
+            }
+          },
+          "description": null
+        },
+        {
+          "v": "17",
+          "name": "List the model2 entities",
+          "method": "GET",
+          "endpoint": "<<baseUrl>>/v1/model2",
+          "params": [
+            {
+              "key": "limit",
+              "value": "",
+              "active": true,
+              "description": "Maximum number of rows to return (20 by default, 100 at most)"
+            },
+            {
+              "key": "offset",
+              "value": "",
+              "active": true,
+              "description": "Number of rows to skip"
+            }
+          ],
+          "headers": [],
+          "preRequestScript": "",
+          "testScript": "",
+          "auth": {
+            "authType": "inherit",
+            "authActive": true
+          },
+          "body": {
+            "contentType": null,
+            "body": null
+          },
+          "requestVariables": [],
+          "responses": {
+            "The model2 entities": {
+              "name": "The model2 entities",
+              "originalRequest": {
+                "v": "6",
+                "name": "List the model2 entities",
+                "method": "GET",
+                "endpoint": "<<baseUrl>>/v1/model2",
+                "headers": [],
+                "params": [
+                  {
+                    "key": "limit",
+                    "value": "",
+                    "active": true,
+                    "description": "Maximum number of rows to return (20 by default, 100 at most)"
+                  },
+                  {
+                    "key": "offset",
+                    "value": "",
+                    "active": true,
+                    "description": "Number of rows to skip"
+                  }
+                ],
+                "body": {
+                  "contentType": null,
+                  "body": null
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": []
+              },
+              "status": "OK",
+              "code": 200,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "[\n  {\n    \"created_at\": \"string\",\n    \"deleted_at\": \"string\",\n    \"field1\": \"string\",\n    \"id\": 0,\n    \"updated_at\": \"string\"\n  }\n]"
+            },
+            "The listing failed": {
+              "name": "The listing failed",
+              "originalRequest": {
+                "v": "6",
+                "name": "List the model2 entities",
+                "method": "GET",
+                "endpoint": "<<baseUrl>>/v1/model2",
+                "headers": [],
+                "params": [
+                  {
+                    "key": "limit",
+                    "value": "",
+                    "active": true,
+                    "description": "Maximum number of rows to return (20 by default, 100 at most)"
+                  },
+                  {
+                    "key": "offset",
+                    "value": "",
+                    "active": true,
+                    "description": "Number of rows to skip"
+                  }
+                ],
+                "body": {
+                  "contentType": null,
+                  "body": null
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": []
+              },
+              "status": "Internal Server Error",
+              "code": 500,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "text/plain"
+                }
+              ],
+              "body": ""
+            }
+          },
+          "description": null
+        },
+        {
+          "v": "17",
+          "name": "Create one model2",
+          "method": "POST",
+          "endpoint": "<<baseUrl>>/v1/model2",
+          "params": [],
+          "headers": [],
+          "preRequestScript": "",
+          "testScript": "",
+          "auth": {
+            "authType": "inherit",
+            "authActive": true
+          },
+          "body": {
+            "contentType": "application/json",
+            "body": "{\n  \"field1\": \"string\"\n}"
+          },
+          "requestVariables": [],
+          "responses": {
+            "The created model2": {
+              "name": "The created model2",
+              "originalRequest": {
+                "v": "6",
+                "name": "Create one model2",
+                "method": "POST",
+                "endpoint": "<<baseUrl>>/v1/model2",
+                "headers": [],
+                "params": [],
+                "body": {
+                  "contentType": "application/json",
+                  "body": "{\n  \"field1\": \"string\"\n}"
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": []
+              },
+              "status": "OK",
+              "code": 200,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"created_at\": \"string\",\n  \"deleted_at\": \"string\",\n  \"field1\": \"string\",\n  \"id\": 0,\n  \"updated_at\": \"string\"\n}"
+            },
+            "The creation failed": {
+              "name": "The creation failed",
+              "originalRequest": {
+                "v": "6",
+                "name": "Create one model2",
+                "method": "POST",
+                "endpoint": "<<baseUrl>>/v1/model2",
+                "headers": [],
+                "params": [],
+                "body": {
+                  "contentType": "application/json",
+                  "body": "{\n  \"field1\": \"string\"\n}"
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": []
+              },
+              "status": "Internal Server Error",
+              "code": 500,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "text/plain"
+                }
+              ],
+              "body": ""
+            }
+          },
+          "description": null
+        }
+      ],
+      "auth": {
+        "authType": "inherit",
+        "authActive": true
+      },
+      "headers": [],
+      "variables": [],
+      "description": null,
+      "preRequestScript": "",
+      "testScript": ""
+    },
+    {
+      "v": 12,
+      "name": "model3",
+      "folders": [],
+      "requests": [
+        {
+          "v": "17",
+          "name": "Find one model3 by id",
+          "method": "GET",
+          "endpoint": "<<baseUrl>>/v1/model3/<<id>>",
+          "params": [],
+          "headers": [],
+          "preRequestScript": "",
+          "testScript": "",
+          "auth": {
+            "authType": "inherit",
+            "authActive": true
+          },
+          "body": {
+            "contentType": null,
+            "body": null
+          },
+          "requestVariables": [
+            {
+              "key": "id",
+              "value": "",
+              "active": true
+            }
+          ],
+          "responses": {
+            "The model3 found": {
+              "name": "The model3 found",
+              "originalRequest": {
+                "v": "6",
+                "name": "Find one model3 by id",
+                "method": "GET",
+                "endpoint": "<<baseUrl>>/v1/model3/<<id>>",
+                "headers": [],
+                "params": [],
+                "body": {
+                  "contentType": null,
+                  "body": null
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": [
+                  {
+                    "key": "id",
+                    "value": "",
+                    "active": true
+                  }
+                ]
+              },
+              "status": "OK",
+              "code": 200,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"created_at\": \"string\",\n  \"deleted_at\": \"string\",\n  \"field_opt\": \"string\",\n  \"id\": 0,\n  \"updated_at\": \"string\"\n}"
+            },
+            "ENTITY_NOT_FOUND: no entity has this id": {
+              "name": "ENTITY_NOT_FOUND: no entity has this id",
+              "originalRequest": {
+                "v": "6",
+                "name": "Find one model3 by id",
+                "method": "GET",
+                "endpoint": "<<baseUrl>>/v1/model3/<<id>>",
+                "headers": [],
+                "params": [],
+                "body": {
+                  "contentType": null,
+                  "body": null
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": [
+                  {
+                    "key": "id",
+                    "value": "",
+                    "active": true
+                  }
+                ]
+              },
+              "status": "Not Found",
+              "code": 404,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "text/plain"
+                }
+              ],
+              "body": ""
+            }
+          },
+          "description": null
+        },
+        {
+          "v": "17",
+          "name": "Update one model3 by id",
+          "method": "PUT",
+          "endpoint": "<<baseUrl>>/v1/model3/<<id>>",
+          "params": [],
+          "headers": [],
+          "preRequestScript": "",
+          "testScript": "",
+          "auth": {
+            "authType": "inherit",
+            "authActive": true
+          },
+          "body": {
+            "contentType": "application/json",
+            "body": "{\n  \"field_opt\": \"string\",\n  \"id\": 0,\n  \"updated_at\": \"string\"\n}"
+          },
+          "requestVariables": [
+            {
+              "key": "id",
+              "value": "",
+              "active": true
+            }
+          ],
+          "responses": {
+            "The updated model3": {
+              "name": "The updated model3",
+              "originalRequest": {
+                "v": "6",
+                "name": "Update one model3 by id",
+                "method": "PUT",
+                "endpoint": "<<baseUrl>>/v1/model3/<<id>>",
+                "headers": [],
+                "params": [],
+                "body": {
+                  "contentType": "application/json",
+                  "body": "{\n  \"field_opt\": \"string\",\n  \"id\": 0,\n  \"updated_at\": \"string\"\n}"
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": [
+                  {
+                    "key": "id",
+                    "value": "",
+                    "active": true
+                  }
+                ]
+              },
+              "status": "OK",
+              "code": 200,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"field_opt\": \"string\",\n  \"id\": 0,\n  \"updated_at\": \"string\"\n}"
+            },
+            "ID_MISMATCH: the payload id differs from the path id": {
+              "name": "ID_MISMATCH: the payload id differs from the path id",
+              "originalRequest": {
+                "v": "6",
+                "name": "Update one model3 by id",
+                "method": "PUT",
+                "endpoint": "<<baseUrl>>/v1/model3/<<id>>",
+                "headers": [],
+                "params": [],
+                "body": {
+                  "contentType": "application/json",
+                  "body": "{\n  \"field_opt\": \"string\",\n  \"id\": 0,\n  \"updated_at\": \"string\"\n}"
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": [
+                  {
+                    "key": "id",
+                    "value": "",
+                    "active": true
+                  }
+                ]
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "text/plain"
+                }
+              ],
+              "body": ""
+            },
+            "ENTITY_NOT_FOUND: no entity has this id": {
+              "name": "ENTITY_NOT_FOUND: no entity has this id",
+              "originalRequest": {
+                "v": "6",
+                "name": "Update one model3 by id",
+                "method": "PUT",
+                "endpoint": "<<baseUrl>>/v1/model3/<<id>>",
+                "headers": [],
+                "params": [],
+                "body": {
+                  "contentType": "application/json",
+                  "body": "{\n  \"field_opt\": \"string\",\n  \"id\": 0,\n  \"updated_at\": \"string\"\n}"
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": [
+                  {
+                    "key": "id",
+                    "value": "",
+                    "active": true
+                  }
+                ]
+              },
+              "status": "Not Found",
+              "code": 404,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "text/plain"
+                }
+              ],
+              "body": ""
+            },
+            "The update failed": {
+              "name": "The update failed",
+              "originalRequest": {
+                "v": "6",
+                "name": "Update one model3 by id",
+                "method": "PUT",
+                "endpoint": "<<baseUrl>>/v1/model3/<<id>>",
+                "headers": [],
+                "params": [],
+                "body": {
+                  "contentType": "application/json",
+                  "body": "{\n  \"field_opt\": \"string\",\n  \"id\": 0,\n  \"updated_at\": \"string\"\n}"
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": [
+                  {
+                    "key": "id",
+                    "value": "",
+                    "active": true
+                  }
+                ]
+              },
+              "status": "Internal Server Error",
+              "code": 500,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "text/plain"
+                }
+              ],
+              "body": ""
+            }
+          },
+          "description": null
+        },
+        {
+          "v": "17",
+          "name": "Delete one model3 by id",
+          "method": "DELETE",
+          "endpoint": "<<baseUrl>>/v1/model3/<<id>>",
+          "params": [],
+          "headers": [],
+          "preRequestScript": "",
+          "testScript": "",
+          "auth": {
+            "authType": "inherit",
+            "authActive": true
+          },
+          "body": {
+            "contentType": null,
+            "body": null
+          },
+          "requestVariables": [
+            {
+              "key": "id",
+              "value": "",
+              "active": true
+            }
+          ],
+          "responses": {
+            "The deleted model3": {
+              "name": "The deleted model3",
+              "originalRequest": {
+                "v": "6",
+                "name": "Delete one model3 by id",
+                "method": "DELETE",
+                "endpoint": "<<baseUrl>>/v1/model3/<<id>>",
+                "headers": [],
+                "params": [],
+                "body": {
+                  "contentType": null,
+                  "body": null
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": [
+                  {
+                    "key": "id",
+                    "value": "",
+                    "active": true
+                  }
+                ]
+              },
+              "status": "OK",
+              "code": 200,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"created_at\": \"string\",\n  \"deleted_at\": \"string\",\n  \"field_opt\": \"string\",\n  \"id\": 0,\n  \"updated_at\": \"string\"\n}"
+            },
+            "ENTITY_NOT_FOUND: no entity has this id": {
+              "name": "ENTITY_NOT_FOUND: no entity has this id",
+              "originalRequest": {
+                "v": "6",
+                "name": "Delete one model3 by id",
+                "method": "DELETE",
+                "endpoint": "<<baseUrl>>/v1/model3/<<id>>",
+                "headers": [],
+                "params": [],
+                "body": {
+                  "contentType": null,
+                  "body": null
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": [
+                  {
+                    "key": "id",
+                    "value": "",
+                    "active": true
+                  }
+                ]
+              },
+              "status": "Not Found",
+              "code": 404,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "text/plain"
+                }
+              ],
+              "body": ""
+            },
+            "The deletion failed": {
+              "name": "The deletion failed",
+              "originalRequest": {
+                "v": "6",
+                "name": "Delete one model3 by id",
+                "method": "DELETE",
+                "endpoint": "<<baseUrl>>/v1/model3/<<id>>",
+                "headers": [],
+                "params": [],
+                "body": {
+                  "contentType": null,
+                  "body": null
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": [
+                  {
+                    "key": "id",
+                    "value": "",
+                    "active": true
+                  }
+                ]
+              },
+              "status": "Internal Server Error",
+              "code": 500,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "text/plain"
+                }
+              ],
+              "body": ""
+            }
+          },
+          "description": null
+        },
+        {
+          "v": "17",
+          "name": "List the model3 entities",
+          "method": "GET",
+          "endpoint": "<<baseUrl>>/v1/model3",
+          "params": [
+            {
+              "key": "limit",
+              "value": "",
+              "active": true,
+              "description": "Maximum number of rows to return (20 by default, 100 at most)"
+            },
+            {
+              "key": "offset",
+              "value": "",
+              "active": true,
+              "description": "Number of rows to skip"
+            }
+          ],
+          "headers": [],
+          "preRequestScript": "",
+          "testScript": "",
+          "auth": {
+            "authType": "inherit",
+            "authActive": true
+          },
+          "body": {
+            "contentType": null,
+            "body": null
+          },
+          "requestVariables": [],
+          "responses": {
+            "The model3 entities": {
+              "name": "The model3 entities",
+              "originalRequest": {
+                "v": "6",
+                "name": "List the model3 entities",
+                "method": "GET",
+                "endpoint": "<<baseUrl>>/v1/model3",
+                "headers": [],
+                "params": [
+                  {
+                    "key": "limit",
+                    "value": "",
+                    "active": true,
+                    "description": "Maximum number of rows to return (20 by default, 100 at most)"
+                  },
+                  {
+                    "key": "offset",
+                    "value": "",
+                    "active": true,
+                    "description": "Number of rows to skip"
+                  }
+                ],
+                "body": {
+                  "contentType": null,
+                  "body": null
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": []
+              },
+              "status": "OK",
+              "code": 200,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "[\n  {\n    \"created_at\": \"string\",\n    \"deleted_at\": \"string\",\n    \"field_opt\": \"string\",\n    \"id\": 0,\n    \"updated_at\": \"string\"\n  }\n]"
+            },
+            "The listing failed": {
+              "name": "The listing failed",
+              "originalRequest": {
+                "v": "6",
+                "name": "List the model3 entities",
+                "method": "GET",
+                "endpoint": "<<baseUrl>>/v1/model3",
+                "headers": [],
+                "params": [
+                  {
+                    "key": "limit",
+                    "value": "",
+                    "active": true,
+                    "description": "Maximum number of rows to return (20 by default, 100 at most)"
+                  },
+                  {
+                    "key": "offset",
+                    "value": "",
+                    "active": true,
+                    "description": "Number of rows to skip"
+                  }
+                ],
+                "body": {
+                  "contentType": null,
+                  "body": null
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": []
+              },
+              "status": "Internal Server Error",
+              "code": 500,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "text/plain"
+                }
+              ],
+              "body": ""
+            }
+          },
+          "description": null
+        },
+        {
+          "v": "17",
+          "name": "Create one model3",
+          "method": "POST",
+          "endpoint": "<<baseUrl>>/v1/model3",
+          "params": [],
+          "headers": [],
+          "preRequestScript": "",
+          "testScript": "",
+          "auth": {
+            "authType": "inherit",
+            "authActive": true
+          },
+          "body": {
+            "contentType": "application/json",
+            "body": "{\n  \"field_opt\": \"string\"\n}"
+          },
+          "requestVariables": [],
+          "responses": {
+            "The created model3": {
+              "name": "The created model3",
+              "originalRequest": {
+                "v": "6",
+                "name": "Create one model3",
+                "method": "POST",
+                "endpoint": "<<baseUrl>>/v1/model3",
+                "headers": [],
+                "params": [],
+                "body": {
+                  "contentType": "application/json",
+                  "body": "{\n  \"field_opt\": \"string\"\n}"
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": []
+              },
+              "status": "OK",
+              "code": 200,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"created_at\": \"string\",\n  \"deleted_at\": \"string\",\n  \"field_opt\": \"string\",\n  \"id\": 0,\n  \"updated_at\": \"string\"\n}"
+            },
+            "The creation failed": {
+              "name": "The creation failed",
+              "originalRequest": {
+                "v": "6",
+                "name": "Create one model3",
+                "method": "POST",
+                "endpoint": "<<baseUrl>>/v1/model3",
+                "headers": [],
+                "params": [],
+                "body": {
+                  "contentType": "application/json",
+                  "body": "{\n  \"field_opt\": \"string\"\n}"
+                },
+                "auth": {
+                  "authType": "inherit",
+                  "authActive": true
+                },
+                "requestVariables": []
+              },
+              "status": "Internal Server Error",
+              "code": 500,
+              "headers": [
+                {
+                  "key": "content-type",
+                  "value": "text/plain"
+                }
+              ],
+              "body": ""
+            }
+          },
+          "description": null
+        }
+      ],
+      "auth": {
+        "authType": "inherit",
+        "authActive": true
+      },
+      "headers": [],
+      "variables": [],
+      "description": null,
+      "preRequestScript": "",
+      "testScript": ""
+    }
+  ],
+  "requests": [],
+  "auth": {
+    "authType": "inherit",
+    "authActive": true
+  },
+  "headers": [],
+  "variables": [],
+  "description": null,
+  "preRequestScript": "",
+  "testScript": ""
+}
