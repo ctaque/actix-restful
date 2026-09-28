@@ -9,13 +9,13 @@ members = [
 ]
 
 [workspace.package]
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 
 [workspace.dependencies]
 # Crates internes
-actix-restful = { version = "0.5.0", path = "actix-restful" }
-actix-restful-derive = { version = "0.5.0", path = "actix-restful-derive" }
+actix-restful = { version = "0.5.1", path = "actix-restful" }
+actix-restful-derive = { version = "0.5.1", path = "actix-restful-derive" }
 
 # Dépendances externes
 actix-web = "4"

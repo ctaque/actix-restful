@@ -219,6 +219,7 @@ With `--fields`, the CLI asks interactively for the name and type of each field 
 
 actix-restful generate-model --name Project --fields
 Enter the model fields (empty name to finish), `id: Id` is already declared
+Wrap a type in `Option<T>` (e.g. `Option<i32>`) to make the field optional, its column is then nullable
 Field name: title
 Type of `title` [String]:
 Field name: stars

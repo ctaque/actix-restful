@@ -156,6 +156,7 @@ fn read_fields<R: BufRead, W: Write>(
     } else {
         writeln!(output, "Enter the model fields (empty name to finish), `id: Id` is already declared")?;
     }
+    writeln!(output, "Wrap a type in `Option<T>` (e.g. `Option<i32>`) to make the field optional, its column is then nullable")?;
     loop {
         let name = match prompt(input, output, "Field name: ")? {
             Some(name) if !name.is_empty() => name,
@@ -240,7 +241,7 @@ macro_rules! sql_types {
 
 fn sqlite_types() -> Vec<(&'static str, String)> {
     sql_types!(sqlx::Sqlite;
-        String, i8, i16, i32, u8, u16, i64, u32, f32, f64, bool,
+        String, i8, i16, i32, u8, u16, i64, u32, u64, f32, f64, bool,
         DateTime<Utc>, NaiveDateTime, NaiveDate, NaiveTime, Vec<u8>,
     )
 }
@@ -250,7 +251,8 @@ fn postgres_types() -> Vec<(&'static str, String)> {
     sql_types!(sqlx::Postgres;
         String, i16, i32, i64, f32, f64, bool,
         DateTime<Utc>, NaiveDateTime, NaiveDate, NaiveTime, Vec<u8>,
-        Vec<String>, Vec<i16>, Vec<i32>, Vec<i64>, Vec<f64>, Vec<bool>,
+        Vec<String>, Vec<i16>, Vec<i32>, Vec<i64>, Vec<f32>, Vec<f64>, Vec<bool>,
+        Vec<DateTime<Utc>>, Vec<NaiveDateTime>, Vec<NaiveDate>, Vec<NaiveTime>, Vec<Vec<u8>>,
     )
 }
 
@@ -959,6 +961,7 @@ mod tests {
             Field { name: "done".into(), ty: "bool".into() },
             Field { name: "summary".into(), ty: "Option<String>".into() },
             Field { name: "cover".into(), ty: "Option<Vec<u8>>".into() },
+            Field { name: "hits".into(), ty: "u64".into() },
         ];
         assert_eq!(render_migration("Project", &fields, false, Dialect::Sqlite).unwrap(), "CREATE TABLE IF NOT EXISTS project (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -968,7 +971,8 @@ mod tests {
     score REAL NOT NULL,
     done BOOLEAN NOT NULL,
     summary TEXT,
-    cover BLOB
+    cover BLOB,
+    hits INTEGER NOT NULL
 );
 ");
         assert_eq!(render_migration("Project", &[], false, Dialect::Sqlite).unwrap(), "CREATE TABLE IF NOT EXISTS project (\n    id INTEGER PRIMARY KEY AUTOINCREMENT\n);\n");
@@ -1109,6 +1113,12 @@ mod tests {
             Field { name: "tags".into(), ty: "Vec<String>".into() },
             Field { name: "cover".into(), ty: "Option<Vec<u8>>".into() },
             Field { name: "at".into(), ty: "DateTime<Utc>".into() },
+            Field { name: "ratios".into(), ty: "Vec<f32>".into() },
+            Field { name: "seen".into(), ty: "Vec<DateTime<Utc>>".into() },
+            Field { name: "days".into(), ty: "Option<Vec<NaiveDate>>".into() },
+            Field { name: "logs".into(), ty: "Vec<NaiveDateTime>".into() },
+            Field { name: "slots".into(), ty: "Vec<NaiveTime>".into() },
+            Field { name: "blobs".into(), ty: "Vec<Vec<u8>>".into() },
         ];
         assert_eq!(render_migration("Project", &fields, true, Dialect::Postgres).unwrap(), "CREATE TABLE IF NOT EXISTS project (
     id BIGSERIAL PRIMARY KEY,
@@ -1120,6 +1130,12 @@ mod tests {
     tags TEXT[] NOT NULL,
     cover BYTEA,
     at TIMESTAMPTZ NOT NULL,
+    ratios FLOAT4[] NOT NULL,
+    seen TIMESTAMPTZ[] NOT NULL,
+    days DATE[],
+    logs TIMESTAMP[] NOT NULL,
+    slots TIME[] NOT NULL,
+    blobs BYTEA[] NOT NULL,
     created_at TIMESTAMPTZ,
     updated_at TIMESTAMPTZ,
     deleted_at TIMESTAMPTZ
