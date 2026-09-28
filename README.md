@@ -117,7 +117,7 @@ use actix_web::web;
 async fn main() -> std::io::Result<()>{
     actix_web::HttpServer::new(|| {
         actix_web::App::new()
-            .service(web::scope(Project::scope()).configure(gen_endpoint!(Project, NewProject, UpdatableProject)))
+            .service(actix_web::web::scope("/v1").configure(gen_endpoint!(Project, NewProject, UpdatableProject)))
             .app_data(web::Data::new(AppState{}))
     })
         .bind(("127.0.0.1", 8085))?
@@ -180,7 +180,7 @@ async fn main() -> std::io::Result<()>{
     actix_web::HttpServer::new(|| {
         actix_web::App::new()
             .document(Spec::default())
-            .service(apistos::web::scope(Project::scope()).configure(gen_documented_endpoint!(Project, NewProject, UpdatableProject)))
+            .service(apistos::web::scope("v1").configure(gen_documented_endpoint!(Project, NewProject, UpdatableProject)))
             .app_data(web::Data::new(AppState{}))
             // serves the document on /openapi.json and Swagger UI on /swagger
             .build_with("/openapi.json", BuildConfig::default().with(SwaggerUIConfig::new(&"/swagger")))
@@ -236,26 +236,30 @@ actix-restful generate-model --name Project --fields --sqlx
 
 ```
 
-With `--migration` (which also requires `--fields`), the CLI creates the migration of the `project` table for the targeted database in `<timestamp>_create_project.sql` of the `migrations` folder next to `src` (the parent `migrations` folder when run from inside `src`), ready for `sqlx migrate run` or `sqlx::migrate!()`. Each field type is mapped to the column type sqlx decodes it from, and `Option<T>` fields are nullable:
+With `--migration` (which also requires `--fields`), the CLI creates the migration of the `project` table for the targeted database in `<timestamp>_create_project.sql` of the `migrations` folder next to `src` (the parent `migrations` folder when run from inside `src`), ready for `sqlx migrate run` or `sqlx::migrate!()`. Each field type is mapped to the column type sqlx declares for it (`<T as sqlx::Type<DB>>::type_info().name()`), so the generated columns always decode into the model fields, and `Option<T>` fields are nullable:
 
 | Rust type | SQLite | PostgreSQL | MySQL |
 |---|---|---|---|
 | `String` | `TEXT` | `TEXT` | `VARCHAR(255)` |
-| `i8` | `INT4` | | `TINYINT` |
-| `i16` | `INT4` | `SMALLINT` | `SMALLINT` |
-| `i32` | `INT4` | `INTEGER` | `INT` |
-| `i64` | `INTEGER` | `BIGINT` | `BIGINT` |
-| `u8`, `u16`, `u32` | `INT4`, `INT4`, `INTEGER` | | `TINYINT UNSIGNED`, `SMALLINT UNSIGNED`, `INT UNSIGNED` |
+| `i8` | `INTEGER` | | `TINYINT` |
+| `i16` | `INTEGER` | `INT2` | `SMALLINT` |
+| `i32` | `INTEGER` | `INT4` | `INT` |
+| `i64` | `INTEGER` | `INT8` | `BIGINT` |
+| `u8`, `u16`, `u32` | `INTEGER` | | `TINYINT UNSIGNED`, `SMALLINT UNSIGNED`, `INT UNSIGNED` |
 | `u64` | | | `BIGINT UNSIGNED` |
-| `f32` | `REAL` | `REAL` | `FLOAT` |
-| `f64` | `REAL` | `DOUBLE PRECISION` | `DOUBLE` |
-| `bool` | `BOOLEAN` | `BOOLEAN` | `BOOLEAN` |
+| `f32` | `REAL` | `FLOAT4` | `FLOAT` |
+| `f64` | `REAL` | `FLOAT8` | `DOUBLE` |
+| `bool` | `BOOLEAN` | `BOOL` | `BOOLEAN` |
 | `DateTime<Utc>` | `DATETIME` | `TIMESTAMPTZ` | `DATETIME(6)` |
 | `NaiveDateTime` | `DATETIME` | `TIMESTAMP` | `DATETIME(6)` |
 | `NaiveDate` | `DATE` | `DATE` | `DATE` |
 | `NaiveTime` | `TIME` | `TIME` | `TIME(6)` |
 | `Vec<u8>` | `BLOB` | `BYTEA` | `BLOB` |
-| `Vec<String>`, `Vec<i16>`, `Vec<i32>`, `Vec<i64>`, `Vec<f64>`, `Vec<bool>` | | `TEXT[]`, `SMALLINT[]`, `INTEGER[]`, `BIGINT[]`, `DOUBLE PRECISION[]`, `BOOLEAN[]` | |
+| `Vec<String>`, `Vec<i16>`, `Vec<i32>`, `Vec<i64>`, `Vec<f64>`, `Vec<bool>` | | `TEXT[]`, `INT2[]`, `INT4[]`, `INT8[]`, `FLOAT8[]`, `BOOL[]` | |
+
+The PostgreSQL names are the ones of sqlx, aliases of the standard types: `INT2`, `INT4` and `INT8` are `SMALLINT`, `INTEGER` and `BIGINT`, `FLOAT4` and `FLOAT8` are `REAL` and `DOUBLE PRECISION`, `BOOL` is `BOOLEAN`. On MySQL, four types differ from sqlx: `String` is a `VARCHAR(255)` (sqlx names a `VARCHAR` without a length, which is not a valid column type), `DateTime<Utc>` is a `DATETIME(6)` rather than a `TIMESTAMP` (sqlx writes the UTC date and time, stored as is by `DATETIME` where `TIMESTAMP` would convert it from the session time zone), and `NaiveDateTime` and `NaiveTime` keep their microseconds with `DATETIME(6)` and `TIME(6)`.
+
+As the column types come from sqlx, the CLI is built with the SQLite, PostgreSQL and MySQL drivers of sqlx (it never connects to a database): its first build is longer, and needs a C compiler for the bundled SQLite.
 
 The `id` column is `INTEGER PRIMARY KEY AUTOINCREMENT` on SQLite, `BIGSERIAL PRIMARY KEY` on PostgreSQL and `BIGINT AUTO_INCREMENT PRIMARY KEY` on MySQL. The chrono import is added to the model for the date types. With `--migration`, a type without a column type in the targeted database (like `Vec<String>` on SQLite) is refused when prompting for the fields:
 

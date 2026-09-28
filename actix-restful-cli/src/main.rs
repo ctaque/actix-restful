@@ -1,8 +1,11 @@
+use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
+use sqlx::TypeInfo;
 use structopt::StructOpt;
 use std::fs::{self, File};
 use std::io::{self, BufRead, Write, Error};
 use std::path::{Path, PathBuf};
 use std::process;
+use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, StructOpt)]
@@ -227,70 +230,53 @@ enum Dialect {
     Mysql,
 }
 
-// Column types of the field types, declared as sqlx decodes them
-// (`INT4` for 32 bits integers, `INTEGER` for 64 bits ones, `BOOLEAN`, `DATETIME`...)
-const SQLITE_TYPES: &[(&str, &str)] = &[
-    ("String", "TEXT"),
-    ("i8", "INT4"),
-    ("i16", "INT4"),
-    ("i32", "INT4"),
-    ("u8", "INT4"),
-    ("u16", "INT4"),
-    ("i64", "INTEGER"),
-    ("u32", "INTEGER"),
-    ("f32", "REAL"),
-    ("f64", "REAL"),
-    ("bool", "BOOLEAN"),
-    ("DateTime<Utc>", "DATETIME"),
-    ("NaiveDateTime", "DATETIME"),
-    ("NaiveDate", "DATE"),
-    ("NaiveTime", "TIME"),
-    ("Vec<u8>", "BLOB"),
-];
+// Column types of the field types, as sqlx declares them (`sqlx::Type::type_info`)
+// so the columns decode into the fields, the field types are listed with the path used in the models
+macro_rules! sql_types {
+    ($db:ty; $($ty:ty),* $(,)?) => {
+        vec![$( (stringify!($ty), <$ty as sqlx::Type<$db>>::type_info().name().to_string()) ),*]
+    };
+}
+
+fn sqlite_types() -> Vec<(&'static str, String)> {
+    sql_types!(sqlx::Sqlite;
+        String, i8, i16, i32, u8, u16, i64, u32, f32, f64, bool,
+        DateTime<Utc>, NaiveDateTime, NaiveDate, NaiveTime, Vec<u8>,
+    )
+}
 
 // PostgreSQL has no unsigned integers and sqlx maps i8 to "char", Vec<T> are arrays
-const POSTGRES_TYPES: &[(&str, &str)] = &[
-    ("String", "TEXT"),
-    ("i16", "SMALLINT"),
-    ("i32", "INTEGER"),
-    ("i64", "BIGINT"),
-    ("f32", "REAL"),
-    ("f64", "DOUBLE PRECISION"),
-    ("bool", "BOOLEAN"),
-    ("DateTime<Utc>", "TIMESTAMPTZ"),
-    ("NaiveDateTime", "TIMESTAMP"),
-    ("NaiveDate", "DATE"),
-    ("NaiveTime", "TIME"),
-    ("Vec<u8>", "BYTEA"),
-    ("Vec<String>", "TEXT[]"),
-    ("Vec<i16>", "SMALLINT[]"),
-    ("Vec<i32>", "INTEGER[]"),
-    ("Vec<i64>", "BIGINT[]"),
-    ("Vec<f64>", "DOUBLE PRECISION[]"),
-    ("Vec<bool>", "BOOLEAN[]"),
-];
+fn postgres_types() -> Vec<(&'static str, String)> {
+    sql_types!(sqlx::Postgres;
+        String, i16, i32, i64, f32, f64, bool,
+        DateTime<Utc>, NaiveDateTime, NaiveDate, NaiveTime, Vec<u8>,
+        Vec<String>, Vec<i16>, Vec<i32>, Vec<i64>, Vec<f64>, Vec<bool>,
+    )
+}
 
+// sqlx names a VARCHAR without its length, which is not a valid column type.
 // sqlx writes DateTime<Utc> as its UTC date and time, stored as is by DATETIME
-// where TIMESTAMP would convert it from the session time zone
-const MYSQL_TYPES: &[(&str, &str)] = &[
+// where TIMESTAMP (the sqlx type) would convert it from the session time zone,
+// and with microseconds as the other databases
+const MYSQL_OVERRIDES: &[(&str, &str)] = &[
     ("String", "VARCHAR(255)"),
-    ("i8", "TINYINT"),
-    ("i16", "SMALLINT"),
-    ("i32", "INT"),
-    ("i64", "BIGINT"),
-    ("u8", "TINYINT UNSIGNED"),
-    ("u16", "SMALLINT UNSIGNED"),
-    ("u32", "INT UNSIGNED"),
-    ("u64", "BIGINT UNSIGNED"),
-    ("f32", "FLOAT"),
-    ("f64", "DOUBLE"),
-    ("bool", "BOOLEAN"),
     ("DateTime<Utc>", "DATETIME(6)"),
     ("NaiveDateTime", "DATETIME(6)"),
-    ("NaiveDate", "DATE"),
     ("NaiveTime", "TIME(6)"),
-    ("Vec<u8>", "BLOB"),
 ];
+
+fn mysql_types() -> Vec<(&'static str, String)> {
+    let mut types = sql_types!(sqlx::MySql;
+        String, i8, i16, i32, i64, u8, u16, u32, u64, f32, f64, bool,
+        DateTime<Utc>, NaiveDateTime, NaiveDate, NaiveTime, Vec<u8>,
+    );
+    for (ty, sql) in types.iter_mut() {
+        if let Some((_, over)) = MYSQL_OVERRIDES.iter().find(|(t, _)| t == ty) {
+            *sql = over.to_string();
+        }
+    }
+    types
+}
 
 impl Dialect {
     fn from_flags(postgres: bool, mysql: bool) -> Dialect {
@@ -309,11 +295,14 @@ impl Dialect {
         }
     }
 
-    fn sql_types(self) -> &'static [(&'static str, &'static str)] {
+    fn sql_types(self) -> &'static [(&'static str, String)] {
+        static SQLITE: OnceLock<Vec<(&str, String)>> = OnceLock::new();
+        static POSTGRES: OnceLock<Vec<(&str, String)>> = OnceLock::new();
+        static MYSQL: OnceLock<Vec<(&str, String)>> = OnceLock::new();
         match self {
-            Dialect::Sqlite => SQLITE_TYPES,
-            Dialect::Postgres => POSTGRES_TYPES,
-            Dialect::Mysql => MYSQL_TYPES,
+            Dialect::Sqlite => SQLITE.get_or_init(sqlite_types),
+            Dialect::Postgres => POSTGRES.get_or_init(postgres_types),
+            Dialect::Mysql => MYSQL.get_or_init(mysql_types),
         }
     }
 
@@ -329,7 +318,7 @@ impl Dialect {
     fn sql_type(self, ty: &str) -> Option<&'static str> {
         // chrono types can be written with their path
         let ty = ty.trim_start_matches("chrono::");
-        self.sql_types().iter().find(|(t, _)| *t == ty).map(|(_, sql)| *sql)
+        self.sql_types().iter().find(|(t, _)| *t == ty).map(|(_, sql)| sql.as_str())
     }
 
     // Column type of a field type and whether it is NOT NULL, `Option<T>` fields are nullable,
@@ -974,7 +963,7 @@ mod tests {
         assert_eq!(render_migration("Project", &fields, false, Dialect::Sqlite).unwrap(), "CREATE TABLE IF NOT EXISTS project (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL,
-    stars INT4 NOT NULL,
+    stars INTEGER NOT NULL,
     views INTEGER NOT NULL,
     score REAL NOT NULL,
     done BOOLEAN NOT NULL,
@@ -1124,10 +1113,10 @@ mod tests {
         assert_eq!(render_migration("Project", &fields, true, Dialect::Postgres).unwrap(), "CREATE TABLE IF NOT EXISTS project (
     id BIGSERIAL PRIMARY KEY,
     title TEXT NOT NULL,
-    stars INTEGER NOT NULL,
-    views BIGINT NOT NULL,
-    score DOUBLE PRECISION NOT NULL,
-    done BOOLEAN NOT NULL,
+    stars INT4 NOT NULL,
+    views INT8 NOT NULL,
+    score FLOAT8 NOT NULL,
+    done BOOL NOT NULL,
     tags TEXT[] NOT NULL,
     cover BYTEA,
     at TIMESTAMPTZ NOT NULL,

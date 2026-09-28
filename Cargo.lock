@@ -71,7 +71,7 @@ dependencies = [
 
 [[package]]
 name = "actix-restful"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "actix-restful-derive",
  "actix-web",
@@ -86,14 +86,16 @@ dependencies = [
 
 [[package]]
 name = "actix-restful-cli"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
+ "chrono",
+ "sqlx",
  "structopt",
 ]
 
 [[package]]
 name = "actix-restful-derive"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "actix-restful",
  "actix-web",
@@ -1519,7 +1521,7 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "openapi"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "actix-restful",
  "actix-restful-derive",
@@ -1535,7 +1537,7 @@ dependencies = [
 
 [[package]]
 name = "pagination"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "actix-restful",
  "actix-restful-derive",
@@ -1933,7 +1935,7 @@ dependencies = [
 
 [[package]]
 name = "simple"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "actix-restful",
  "actix-restful-derive",

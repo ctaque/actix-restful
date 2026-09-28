@@ -8,6 +8,9 @@ default-run = "actix-restful"
 
 [dependencies]
 structopt.workspace = true
+chrono.workspace = true
+# Column types of the generated migrations, from the sqlx type of the fields
+sqlx = { workspace = true, features = ["mysql"] }
 
 [[bin]]
 name = "actix-restful"
