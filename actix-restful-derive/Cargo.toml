@@ -10,12 +10,10 @@ authors.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-actix-web = { workspace = true, features = ["rustls"] }
 darling.workspace = true
 proc-macro2.workspace = true
 quote.workspace = true
 syn.workspace = true
-actix-restful.workspace = true
 
 [lib]
 proc-macro = true
