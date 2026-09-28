@@ -12,6 +12,9 @@ members = [
 version = "0.5.1"
 edition = "2021"
 
+[profile.release.build-override]
+strip = false
+
 [workspace.dependencies]
 # Crates internes
 actix-restful = { version = "0.5.1", path = "actix-restful" }
