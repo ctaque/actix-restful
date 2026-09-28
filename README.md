@@ -5,7 +5,7 @@ This project is still a WIP and not yet published on crates.io
 ### Motivation
 
 Building a Json Api for actix can be a lot of boilerplace code to write.
-This project aims to simplify code generation for fast implementation of Json apis for Actix.
+This project aims to simplify code generation for fast implementation of Json CRUD operations with Actix.
 
 #### Contents
 
