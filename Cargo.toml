@@ -9,7 +9,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.5.1"
+version = "0.5.2"
 edition = "2021"
 
 [profile.release.build-override]
@@ -17,8 +17,8 @@ strip = false
 
 [workspace.dependencies]
 # Crates internes
-actix-restful = { version = "0.5.1", path = "actix-restful" }
-actix-restful-derive = { version = "0.5.1", path = "actix-restful-derive" }
+actix-restful = { version = "0.5.2", path = "actix-restful" }
+actix-restful-derive = { version = "0.5.2", path = "actix-restful-derive" }
 
 # Dépendances externes
 actix-web = "4"
