@@ -21,7 +21,7 @@ use actix_web;
 async fn main() -> anyhow::Result<()>{
     // The PostgreSQL database is migrated on launch
     let database_url = std::env::var("DATABASE_URL")
-        .map_err(|_| anyhow::anyhow!("DATABASE_URL must be set, e.g. postgres://user:password@localhost:5432/db"))?;
+        .map_err(|_| anyhow::anyhow!("DATABASE_URL must be set, e.g. postgres://user:password@localhost:5432/db or sqlite://data.db?mode=rwc"))?;
     let pool = PgPoolOptions::new().connect(&database_url).await?;
     sqlx::migrate!().run(&pool).await?;
 
