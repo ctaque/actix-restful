@@ -261,7 +261,7 @@ Operations are tagged with the model path (`project`) and identified by the acti
 
 ``` toml
 [dependencies]
-actix-restful = { version = "0.7", features = ["openapi"] }
+actix-restful = { version = "0.7", git = "https://github.com/ctaque/actix-restful", features = ["openapi"] }
 apistos = { version = "0.9", features = ["chrono", "swagger-ui"] }
 # apistos relies on its fork of schemars
 schemars = { package = "apistos-schemars", version = "0.8" }
@@ -403,7 +403,7 @@ actix-restful generate-model --name Project --fields --sqlx --migration --timest
 Create the project and add the dependencies
 ```
 cargo new my-api && cd my-api
-cargo add actix-restful
+cargo add --git https://github.com/ctaque/actix-restful --tag v0.7.0 actix-restful # 0.7.0 for actix v4 and 0.1.0 for actix v3
 cargo add actix-web anyhow async-trait
 cargo add serde --features derive
 cargo add sqlx --features runtime-tokio,sqlite,macros,migrate   # if persisting via sqlx
@@ -414,13 +414,13 @@ cargo add chrono --features serde                                # if --timestam
 For OpenAPI, you also need:
 
 ```
-cargo add actix-restful --features openapi
+cargo add --git https://github.com/ctaque/actix-restful --tag v0.7.0 actix-restful --features openapi # 0.7.0 for actix v4 and 0.1.0 for actix v3
 cargo add apistos --features chrono,swagger-ui
-cargo add schemars --rename schemars --package apistos-schemars   # or by hand in Cargo.toml
+cargo add apistos-schemars --rename schemars --features chrono
 ```
 Install the CLI (once per machine)
 ```
-cargo install actix-restful-cli     # installs the `actix-restful` binary
+cargo add --git https://github.com/ctaque/actix-restful --tag v0.7.0 actix-restful-cli # 0.7.0 for actix v4 and 0.1.0 for actix v3
 cargo install sqlx-cli               # optional, for `sqlx migrate run`
 ```
 Generate a model
