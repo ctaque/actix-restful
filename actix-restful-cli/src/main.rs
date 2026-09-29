@@ -40,7 +40,51 @@ pub enum Opt {
         /// set by the sqlx queries, `delete` becomes a soft delete setting `deleted_at`
         #[structopt(long = "timestamps")]
         timestamps: bool,
-    }
+    },
+    /// Generates a has-many relation, served on `GET /{parent}/{id}/{relation}` and paginated
+    #[structopt(name = "generate-relation")]
+    GenerateRelation {
+        /// The parent model, e.g. `Project`
+        #[structopt(long = "parent")]
+        parent: String,
+        /// The child model, e.g. `Book`
+        #[structopt(long = "child")]
+        child: String,
+        /// The last segment of the route, the plural of the child by default (`books`)
+        #[structopt(long = "name")]
+        name: Option<String>,
+        /// The column referencing the parent, in the child table or in the --through table,
+        /// `{parent}_id` by default (`project_id`)
+        #[structopt(long = "foreign-key")]
+        foreign_key: Option<String>,
+        /// The join model of a many-to-many relation, e.g. `ProjectCategory`
+        #[structopt(long = "through")]
+        through: Option<String>,
+        /// The column of the --through table referencing the child, `{child}_id` by default (`category_id`)
+        #[structopt(long = "child-key", requires = "through")]
+        child_key: Option<String>,
+        /// Derives JsonSchema and ApiComponent on the query, and documents the route
+        #[structopt(long = "openapi")]
+        openapi: bool,
+        /// Fills the relation with sqlx queries on the `pool` of the AppState
+        #[structopt(long = "sqlx")]
+        sqlx: bool,
+        /// Creates the migration indexing the foreign key in the migrations folder next to src
+        #[structopt(long = "migration")]
+        migration: bool,
+        /// Targets SQLite with the sqlx queries and the migration (the default)
+        #[structopt(long = "sqlite", conflicts_with_all = &["postgres", "mysql"])]
+        sqlite: bool,
+        /// Targets PostgreSQL with the sqlx queries and the migration
+        #[structopt(long = "postgres", conflicts_with = "mysql")]
+        postgres: bool,
+        /// Targets MySQL with the sqlx queries and the migration
+        #[structopt(long = "mysql")]
+        mysql: bool,
+        /// The models were generated with --timestamps: the soft deleted rows are skipped
+        #[structopt(long = "timestamps")]
+        timestamps: bool,
+    },
 }
 
 const OPENAPI_IMPORTS: &str = r#"
@@ -221,6 +265,12 @@ const LIST_LIMITS: &str = r#"
     /// Number of rows returned by list when no limit is given
     const DEFAULT_LIMIT: i64 = 20;
     /// Maximum number of rows returned by list
+    const MAX_LIMIT: i64 = 100;"#;
+
+const RELATION_LIMITS: &str = r#"
+    /// Number of children returned when no limit is given
+    const DEFAULT_LIMIT: i64 = 20;
+    /// Maximum number of children returned
     const MAX_LIMIT: i64 = 100;"#;
 
 // Database targeted by the sqlx queries and the migration
@@ -734,6 +784,239 @@ const MODEL_TPL: &str = r#"
     }{openapi_configure}
     "#;
 
+// Plural of the last word of a snake_case name: `book` gives `books`, `category` gives `categories`
+fn pluralize(name: &str) -> String {
+    let consonant_y = name.ends_with('y') && !name[..name.len() - 1].ends_with(['a', 'e', 'i', 'o', 'u']);
+    if consonant_y {
+        format!("{}ies", &name[..name.len() - 1])
+    } else if ["s", "x", "z", "ch", "sh"].iter().any(|end| name.ends_with(end)) {
+        format!("{}es", name)
+    } else {
+        format!("{}s", name)
+    }
+}
+
+// `favorite_books` gives `FavoriteBooks`
+fn to_camel_case(name: &str) -> String {
+    name.split('_')
+        .map(|word| {
+            let mut chars = word.chars();
+            chars.next().map_or(String::new(), |c| c.to_uppercase().chain(chars).collect())
+        })
+        .collect()
+}
+
+#[derive(Debug, PartialEq)]
+struct Through {
+    model: String,
+    // column of the join table referencing the child
+    child_key: String,
+}
+
+// A has-many relation of `parent`, its children referencing it by `foreign_key`,
+// directly or through a join model
+#[derive(Debug, PartialEq)]
+struct Relation {
+    parent: String,
+    child: String,
+    // last segment of the route
+    name: String,
+    foreign_key: String,
+    through: Option<Through>,
+}
+
+impl Relation {
+    fn new(parent: String, child: String, name: Option<String>, foreign_key: Option<String>, through: Option<String>, child_key: Option<String>) -> Relation {
+        let child_snake = to_snake_case(&child);
+        Relation {
+            name: name.unwrap_or_else(|| pluralize(&child_snake)),
+            foreign_key: foreign_key.unwrap_or_else(|| format!("{}_id", to_snake_case(&parent))),
+            through: through.map(|model| Through {
+                model,
+                child_key: child_key.unwrap_or_else(|| format!("{}_id", child_snake)),
+            }),
+            parent,
+            child,
+        }
+    }
+
+    // Module of the relation, next to the models: `project_books`
+    fn module(&self) -> String {
+        format!("{}_{}", to_snake_case(&self.parent), self.name)
+    }
+
+    // Type the `HasMany` trait is implemented on: `ProjectBooks`
+    fn type_name(&self) -> String {
+        format!("{}{}", self.parent, to_camel_case(&self.name))
+    }
+
+    // Table and column holding the foreign key, to index
+    fn foreign_key_column(&self) -> (String, &str) {
+        let table = self.through.as_ref().map_or(&self.child, |through| &through.model);
+        (table.to_lowercase(), &self.foreign_key)
+    }
+}
+
+// Body of list_related: a page of the children, and the lookup of the parent when the page is empty,
+// to answer 404 for an unknown parent, `timestamps` skips the soft deleted rows
+fn relation_sqlx_body(relation: &Relation, timestamps: bool, dialect: Dialect) -> String {
+    let parent = relation.parent.to_lowercase();
+    let child = relation.child.to_lowercase();
+    let placeholders = dialect.placeholders(3);
+    let select = match &relation.through {
+        None => format!(
+            "SELECT * FROM {} WHERE {} = {}{} ORDER BY id LIMIT {} OFFSET {}",
+            child,
+            relation.foreign_key,
+            placeholders[0],
+            if timestamps { " AND deleted_at IS NULL" } else { "" },
+            placeholders[1],
+            placeholders[2]
+        ),
+        Some(through) => {
+            let join = through.model.to_lowercase();
+            format!(
+                "SELECT {child}.* FROM {child} JOIN {join} ON {join}.{child_key} = {child}.id WHERE {join}.{fk} = {p1}{live} ORDER BY {child}.id LIMIT {p2} OFFSET {p3}",
+                child = child,
+                join = join,
+                child_key = through.child_key,
+                fk = relation.foreign_key,
+                p1 = placeholders[0],
+                live = if timestamps { format!(" AND {}.deleted_at IS NULL AND {}.deleted_at IS NULL", child, join) } else { String::new() },
+                p2 = placeholders[1],
+                p3 = placeholders[2],
+            )
+        }
+    };
+    let lookup = format!(
+        "SELECT id FROM {} WHERE id = {}{}",
+        parent,
+        placeholders[0],
+        if timestamps { " AND deleted_at IS NULL" } else { "" }
+    );
+    format!(
+        "{}\n{}
+            // the parent is only looked up when the page is empty
+            if models.is_empty() {{
+                let parent = sqlx::query_scalar::<_, Id>(
+                    \"{}\",
+                )
+                .bind(id)
+                .fetch_optional(&state.pool)
+                .await?;
+                if parent.is_none() {{
+                    return Ok(None);
+                }}
+            }}
+            Ok(Some(models))",
+        LIST_PAGINATION,
+        sqlx_query(
+            "models",
+            &relation.child,
+            &select,
+            &["id".to_string(), "limit".to_string(), "offset".to_string()],
+            Fetch::All
+        ),
+        lookup
+    )
+}
+
+fn render_relation(relation: &Relation, openapi: bool, sqlx: bool, timestamps: bool, dialect: Dialect) -> String {
+    let (imports, derives, service_config, endpoint) = if openapi {
+        (
+            "\n    use apistos::ApiComponent;\n    use schemars::JsonSchema;\n    use actix_restful::gen_documented_relation_endpoint;",
+            OPENAPI_DERIVES,
+            "apistos::web::ServiceConfig",
+            "gen_documented_relation_endpoint",
+        )
+    } else {
+        (
+            "\n    use actix_restful::gen_relation_endpoint;",
+            "",
+            "actix_web::web::ServiceConfig",
+            "gen_relation_endpoint",
+        )
+    };
+    let (body, query, state, limits) = if sqlx {
+        (relation_sqlx_body(relation, timestamps, dialect), "query", "state", RELATION_LIMITS)
+    } else {
+        (
+            "            // list the children of the parent `id`, None when it does not exist".to_string(),
+            "_query",
+            "_state",
+            "",
+        )
+    };
+    RELATION_TPL
+        .replace("{body}", &body)
+        .replace("{query}", query)
+        .replace("{state}", state)
+        .replace("{list_limits}", limits)
+        .replace("{openapi_imports}", imports)
+        .replace("{openapi_derives}", derives)
+        .replace("{service_config}", service_config)
+        .replace("{endpoint}", endpoint)
+        .replace("{relation}", &relation.type_name())
+        .replace("{relation_name}", &relation.name)
+        .replace("{module}", &relation.module())
+        .replace("{parent_module}", &to_snake_case(&relation.parent))
+        .replace("{child_module}", &to_snake_case(&relation.child))
+        .replace("{parent_lower_case}", &relation.parent.to_lowercase())
+        .replace("{parent}", &relation.parent)
+        .replace("{child}", &relation.child)
+}
+
+// Index of the foreign key, which every page of the relation filters on
+fn render_relation_migration(relation: &Relation, dialect: Dialect) -> String {
+    let (table, column) = relation.foreign_key_column();
+    let if_not_exists = if dialect == Dialect::Mysql { "" } else { "IF NOT EXISTS " };
+    format!("CREATE INDEX {}{}_{}_idx ON {} ({});\n", if_not_exists, table, column, table, column)
+}
+
+const RELATION_TPL: &str = r#"
+    // The application state, declared (or re-exported) at the root of the crate
+    use crate::AppState;
+    use crate::{parent_module}::{{parent}, Id};
+    use crate::{child_module}::{child};
+    use serde::Deserialize;
+    use actix_restful::{
+        HasMany,
+        anyhow::Result,
+        async_trait,
+    };{openapi_imports}
+
+    #[derive(Deserialize{openapi_derives})]
+    pub struct {relation}Query {
+        /// Number of rows to skip
+        pub offset: Option<usize>,
+        /// Maximum number of rows to return (20 by default, 100 at most)
+        pub limit: Option<usize>,
+    }{list_limits}
+
+    /// The {relation_name} of a {parent_lower_case}, served on `GET /{parent_lower_case}/{id}/{relation_name}`
+    pub struct {relation};
+
+    #[async_trait]
+    impl HasMany for {relation} {
+        type Parent = {parent};
+        type Id = Id;
+        type Query = {relation}Query;
+        type Result = Vec<{child}>;
+        type State = AppState;
+        const RELATION: &'static str = "{relation_name}";
+
+        async fn list_related(id: Id, {query}: &{relation}Query, {state}: &AppState) -> Result<Option<Vec<{child}>>> {
+{body}
+        }
+    }
+
+    // Registers the route of the {relation_name} of a {parent_lower_case}, to mount with `.configure({module}::configure)`
+    // in the same scope as the {parent_lower_case} routes
+    pub fn configure(cfg: &mut {service_config}) {
+        {endpoint}!({relation})(cfg)
+    }
+    "#;
+
 fn main() -> Result<(), Error> {
     let opt = Opt::from_args();
 
@@ -774,12 +1057,44 @@ fn main() -> Result<(), Error> {
             }
             Ok(())
         }
+        Opt::GenerateRelation { parent, child, name, foreign_key, through, child_key, openapi, sqlx, migration, sqlite: _, postgres, mysql, timestamps } => {
+            let dialect = Dialect::from_flags(postgres, mysql);
+            let relation = Relation::new(parent, child, name, foreign_key, through, child_key);
+            let columns = [Some(&relation.name), Some(&relation.foreign_key), relation.through.as_ref().map(|t| &t.child_key)];
+            if let Some(invalid) = columns.into_iter().flatten().find(|c| !is_field_name(c)) {
+                eprintln!("`{}` is not a valid name, use snake_case, relation not generated", invalid);
+                process::exit(1);
+            }
+            let module = relation.module();
+            let path = format!("{}.rs", module);
+            fs::write(&path, render_relation(&relation, openapi, sqlx, timestamps, dialect))?;
+            println!(
+                "Successfully generated relation {}, declare it with `mod {};` and mount it with `.configure({}::configure)` in the scope of the {} routes",
+                path, module, module, relation.parent.to_lowercase()
+            );
+            if migration {
+                let secs = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
+                let dir = migrations_dir(&std::env::current_dir()?);
+                fs::create_dir_all(&dir)?;
+                let (table, column) = relation.foreign_key_column();
+                let path = dir
+                    .join(format!("{}_index_{}_{}.sql", migration_timestamp(secs), table, column))
+                    .display()
+                    .to_string();
+                fs::write(&path, render_relation_migration(&relation, dialect))?;
+                println!("Successfully generated migration {}", path);
+            }
+            Ok(())
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{migration_timestamp, migrations_dir, parse_field_type, read_fields, render_migration, render_model, to_snake_case, Dialect, Field, Opt};
+    use super::{
+        migration_timestamp, migrations_dir, parse_field_type, pluralize, read_fields, render_migration, render_model,
+        render_relation, render_relation_migration, to_camel_case, to_snake_case, Dialect, Field, Opt, Relation, Through,
+    };
     use structopt::StructOpt;
 
     #[test]
@@ -1220,5 +1535,98 @@ mod tests {
         assert!(model.contains(".bind(self.id)\n            .fetch_one(&state.pool)\n            .await?;\n            sqlx::query(\n                \"UPDATE project SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL\",\n            )\n            .bind(now)\n            .bind(self.id)\n            .execute(&state.pool)\n            .await?;\n            model.deleted_at = Some(now);\n            Ok(model)"));
         assert!(model.contains("\"UPDATE project SET title = ?, stars = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL\""));
         assert!(model.contains("sqlx::query_as::<_, UpdatableProject>(\n                \"SELECT id, title, stars, updated_at FROM project WHERE id = ? AND deleted_at IS NULL\","));
+    }
+
+    fn relation(parent: &str, child: &str, through: Option<&str>) -> Relation {
+        Relation::new(parent.into(), child.into(), None, None, through.map(String::from), None)
+    }
+
+    #[test]
+    fn relation_names_default_to_the_plural_of_the_child() {
+        assert_eq!(pluralize("book"), "books");
+        assert_eq!(pluralize("category"), "categories");
+        assert_eq!(pluralize("day"), "days");
+        assert_eq!(pluralize("box"), "boxes");
+        assert_eq!(pluralize("branch"), "branches");
+        assert_eq!(to_camel_case("favorite_books"), "FavoriteBooks");
+        let books = relation("Project", "Book", None);
+        assert_eq!(books.name, "books");
+        assert_eq!(books.foreign_key, "project_id");
+        assert_eq!(books.module(), "project_books");
+        assert_eq!(books.type_name(), "ProjectBooks");
+        let categories = relation("Project", "ProjectCategory", None);
+        assert_eq!(categories.name, "project_categories");
+        assert_eq!(categories.type_name(), "ProjectProjectCategories");
+        let through = relation("Project", "Category", Some("ProjectCategory"));
+        assert_eq!(through.through, Some(Through { model: "ProjectCategory".into(), child_key: "category_id".into() }));
+        let named = Relation::new("Project".into(), "Book".into(), Some("drafts".into()), Some("owner_id".into()), None, None);
+        assert_eq!((named.name.as_str(), named.foreign_key.as_str(), named.module()), ("drafts", "owner_id", "project_drafts".to_string()));
+    }
+
+    #[test]
+    fn relation_implements_has_many_on_its_own_type() {
+        let rel = render_relation(&relation("Project", "Book", None), false, false, false, Dialect::Sqlite);
+        assert!(rel.contains("use crate::project::{Project, Id};\n    use crate::book::Book;"));
+        assert!(rel.contains("pub struct ProjectBooksQuery {\n        /// Number of rows to skip\n        pub offset: Option<usize>,"));
+        assert!(rel.contains("pub struct ProjectBooks;"));
+        assert!(rel.contains("impl HasMany for ProjectBooks {\n        type Parent = Project;\n        type Id = Id;\n        type Query = ProjectBooksQuery;\n        type Result = Vec<Book>;\n        type State = AppState;\n        const RELATION: &'static str = \"books\";"));
+        assert!(rel.contains("async fn list_related(id: Id, _query: &ProjectBooksQuery, _state: &AppState) -> Result<Option<Vec<Book>>> {"));
+        assert!(rel.contains("pub fn configure(cfg: &mut actix_web::web::ServiceConfig) {\n        gen_relation_endpoint!(ProjectBooks)(cfg)\n    }"));
+        assert!(rel.contains("`.configure(project_books::configure)`"));
+        assert!(!rel.contains("JsonSchema"));
+        assert!(!rel.contains("sqlx"));
+    }
+
+    #[test]
+    fn openapi_relation_is_documented() {
+        let rel = render_relation(&relation("Project", "Book", None), true, false, false, Dialect::Sqlite);
+        assert!(rel.contains("#[derive(Deserialize, JsonSchema, ApiComponent)]\n    pub struct ProjectBooksQuery"));
+        assert!(rel.contains("pub fn configure(cfg: &mut apistos::web::ServiceConfig) {\n        gen_documented_relation_endpoint!(ProjectBooks)(cfg)\n    }"));
+    }
+
+    #[test]
+    fn sqlx_relation_pages_the_children_and_looks_up_the_parent() {
+        let rel = render_relation(&relation("Project", "Book", None), false, true, false, Dialect::Sqlite);
+        assert!(rel.contains("const DEFAULT_LIMIT: i64 = 20;"));
+        assert!(rel.contains("async fn list_related(id: Id, query: &ProjectBooksQuery, state: &AppState)"));
+        assert!(rel.contains("let models = sqlx::query_as::<_, Book>(\n                \"SELECT * FROM book WHERE project_id = $1 ORDER BY id LIMIT $2 OFFSET $3\",\n            )\n            .bind(id)\n            .bind(limit)\n            .bind(offset)\n            .fetch_all(&state.pool)"));
+        assert!(rel.contains("if models.is_empty() {\n                let parent = sqlx::query_scalar::<_, Id>(\n                    \"SELECT id FROM project WHERE id = $1\","));
+        assert!(rel.contains("if parent.is_none() {\n                    return Ok(None);\n                }\n            }\n            Ok(Some(models))"));
+        let mysql = render_relation(&relation("Project", "Book", None), false, true, true, Dialect::Mysql);
+        assert!(mysql.contains("\"SELECT * FROM book WHERE project_id = ? AND deleted_at IS NULL ORDER BY id LIMIT ? OFFSET ?\""));
+        assert!(mysql.contains("\"SELECT id FROM project WHERE id = ? AND deleted_at IS NULL\""));
+    }
+
+    #[test]
+    fn sqlx_relation_joins_the_through_table() {
+        let rel = render_relation(&relation("Project", "Category", Some("ProjectCategory")), false, true, false, Dialect::Postgres);
+        assert!(rel.contains("\"SELECT category.* FROM category JOIN projectcategory ON projectcategory.category_id = category.id WHERE projectcategory.project_id = $1 ORDER BY category.id LIMIT $2 OFFSET $3\""));
+        let rel = render_relation(&relation("Project", "Category", Some("ProjectCategory")), false, true, true, Dialect::Postgres);
+        assert!(rel.contains("WHERE projectcategory.project_id = $1 AND category.deleted_at IS NULL AND projectcategory.deleted_at IS NULL ORDER BY"));
+    }
+
+    #[test]
+    fn relation_migration_indexes_the_foreign_key() {
+        assert_eq!(
+            render_relation_migration(&relation("Project", "Book", None), Dialect::Sqlite),
+            "CREATE INDEX IF NOT EXISTS book_project_id_idx ON book (project_id);\n"
+        );
+        assert_eq!(
+            render_relation_migration(&relation("Project", "Category", Some("ProjectCategory")), Dialect::Mysql),
+            "CREATE INDEX projectcategory_project_id_idx ON projectcategory (project_id);\n"
+        );
+    }
+
+    #[test]
+    fn child_key_requires_through() {
+        let parse = |flags: &[&str]| {
+            let mut args = vec!["actix-restful", "generate-relation", "--parent", "Project", "--child", "Category"];
+            args.extend(flags);
+            Opt::from_iter_safe(&args)
+        };
+        assert!(parse(&[]).is_ok());
+        assert!(parse(&["--child-key", "cat_id"]).is_err());
+        assert!(parse(&["--through", "ProjectCategory", "--child-key", "cat_id"]).is_ok());
+        assert!(parse(&["--postgres", "--mysql"]).is_err());
     }
 }

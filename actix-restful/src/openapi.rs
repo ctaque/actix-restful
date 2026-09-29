@@ -9,7 +9,7 @@
 //! Every type exposed by a route (models, query structs, list and delete results) must implement
 //! [`ApiComponent`], usually with `#[derive(JsonSchema, ApiComponent)]` from apistos.
 
-use crate::{Model, NewModel, RestfulPathInfo, UpdatableModel};
+use crate::{HasMany, Model, NewModel, RestfulPathInfo, UpdatableModel};
 use actix_web::{web, FromRequest, Handler, Responder};
 use apistos::actix::ResponseWrapper;
 use apistos::components::Components;
@@ -95,6 +95,10 @@ operation_struct!(
 operation_struct!(
     /// `PUT /{path}/{id}`: updates the model `M` identified by `ID` with the payload `U`, answering `T`.
     UpdateOperation<M, ID, U, UQ, T>
+);
+operation_struct!(
+    /// `GET /{path}/{id}/{relation}`: lists the children of the relation `R` of a parent model.
+    ListRelatedOperation<R>
 );
 
 impl<M, ID, FQ> PathItemDefinition for FindOperation<M, ID, FQ>
@@ -226,6 +230,34 @@ where
     }
 }
 
+impl<R> PathItemDefinition for ListRelatedOperation<R>
+where
+    R: HasMany,
+    R::Id: ApiComponent,
+    R::Query: ApiComponent,
+    R::Result: ApiComponent,
+{
+    fn operation() -> Operation {
+        let path = R::Parent::path();
+        let mut operation = operation(
+            &path,
+            "list",
+            format!("List the {} of one {} by id", R::RELATION, path),
+            [web::Path::<R::Id>::parameters(), web::Query::<R::Query>::parameters()],
+        );
+        // Unique among the relations of the model: `list_{path}_{relation}`
+        operation.operation_id = Some(operation_id("list", &format!("{}/{}", path, R::RELATION)));
+        add_response(&mut operation, "200", json_response::<R::Result>(format!("The {} of the {}", R::RELATION, path)));
+        add_response(&mut operation, "404", text_response("ENTITY_NOT_FOUND: no parent entity has this id"));
+        add_response(&mut operation, "500", text_response("The listing failed"));
+        operation
+    }
+
+    fn components() -> Vec<Components> {
+        components(&[schemas::<R::Result>(), schemas::<web::Query<R::Query>>()])
+    }
+}
+
 /// Documents the handler `HttpFindListDelete::http_find` of the model `M`.
 pub fn find<M, ID, FQ, LQ, LR, DQ, DR, S, F>(_: PhantomData<M>, handler: F) -> Documented<F, FindOperation<M, ID, FQ>>
 where
@@ -270,6 +302,11 @@ where
     M: Model<ID, FQ, LQ, LR, DQ, DR, S>,
     U: UpdatableModel<T, UQ, S>,
 {
+    Documented::new(handler)
+}
+
+/// Documents the handler `http_list_related` of the relation `R`.
+pub fn list_related<R: HasMany, F>(_: PhantomData<R>, handler: F) -> Documented<F, ListRelatedOperation<R>> {
     Documented::new(handler)
 }
 

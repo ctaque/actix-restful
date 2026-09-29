@@ -4,8 +4,8 @@
 #![allow(dead_code)]
 
 use actix_restful::{
-    actix_restful_info, gen_documented_endpoint, HttpCreate, HttpFindListDelete, HttpUpdate, Model,
-    NewModel, UpdatableModel,
+    actix_restful_info, gen_documented_endpoint, gen_documented_relation_endpoint, HasMany,
+    HttpCreate, HttpFindListDelete, HttpUpdate, Model, NewModel, UpdatableModel,
 };
 use actix_web::{http::StatusCode, test, web, App};
 use anyhow::{anyhow, Result};
@@ -89,6 +89,37 @@ impl UpdatableModel<UpdatableItem, UpdateQuery, AppState> for UpdatableItem {
     }
 }
 
+#[derive(Serialize, JsonSchema, ApiComponent)]
+struct Note {
+    id: Id,
+    text: String,
+}
+
+#[derive(Deserialize, JsonSchema, ApiComponent)]
+struct ItemNotesQuery {
+    offset: Option<usize>,
+    limit: Option<usize>,
+}
+
+struct ItemNotes;
+
+#[async_trait]
+impl HasMany for ItemNotes {
+    type Parent = Item;
+    type Id = Id;
+    type Query = ItemNotesQuery;
+    type Result = Vec<Note>;
+    type State = AppState;
+    const RELATION: &'static str = "notes";
+
+    async fn list_related(id: Id, _query: &ItemNotesQuery, _state: &AppState) -> Result<Option<Vec<Note>>> {
+        match id {
+            1 => Ok(Some(vec![Note { id: 1, text: "note".into() }])),
+            _ => Ok(None),
+        }
+    }
+}
+
 macro_rules! init {
     () => {
         test::init_service(
@@ -102,11 +133,11 @@ macro_rules! init {
                     ..Default::default()
                 })
                 .app_data(web::Data::new(AppState {}))
-                .service(apistos::web::scope("/v1").configure(gen_documented_endpoint!(
-                    Item,
-                    NewItem,
-                    UpdatableItem
-                )))
+                .service(
+                    apistos::web::scope("/v1")
+                        .configure(gen_documented_endpoint!(Item, NewItem, UpdatableItem))
+                        .configure(gen_documented_relation_endpoint!(ItemNotes)),
+                )
                 .build("/openapi.json"),
         )
         .await
@@ -149,7 +180,20 @@ async fn documented_routes_still_serve_requests() {
 }
 
 #[actix_web::test]
-async fn documents_the_five_generated_routes() {
+async fn documented_relation_serves_requests() {
+    let app = init!();
+
+    let req = test::TestRequest::get().uri("/v1/item/1/notes").to_request();
+    let body: Value = test::call_and_read_body_json(&app, req).await;
+    assert_eq!(body, json!([{ "id": 1, "text": "note" }]));
+
+    let req = test::TestRequest::get().uri("/v1/item/3/notes").to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[actix_web::test]
+async fn documents_the_generated_routes() {
     let doc = openapi().await;
     let paths = doc["paths"].as_object().unwrap();
 
@@ -169,6 +213,7 @@ async fn documents_the_five_generated_routes() {
         ("/v1/item/{id}", "delete"),
         ("/v1/item/{id}", "get"),
         ("/v1/item/{id}", "put"),
+        ("/v1/item/{id}/notes", "get"),
     ]
     .iter()
     .map(|(p, m)| (p.to_string(), m.to_string()))
@@ -222,6 +267,24 @@ async fn list_documents_an_inline_array_of_models() {
 }
 
 #[actix_web::test]
+async fn relation_is_tagged_with_the_parent_path_and_documents_its_parameters() {
+    let doc = openapi().await;
+    let relation = &doc["paths"]["/v1/item/{id}/notes"]["get"];
+
+    assert_eq!(relation["operationId"], "list_item_notes");
+    assert_eq!(relation["tags"], json!(["item"]));
+    assert_eq!(
+        parameter_names(relation),
+        [("path", "id"), ("query", "limit"), ("query", "offset")]
+    );
+    assert_eq!(response_codes(relation), ["200", "404", "500"]);
+    assert_eq!(
+        relation["responses"]["200"]["content"]["application/json"]["schema"],
+        json!({ "type": "array", "items": { "$ref": "#/components/schemas/Note" } })
+    );
+}
+
+#[actix_web::test]
 async fn create_and_update_document_their_payloads() {
     let doc = openapi().await;
     let create = &doc["paths"]["/v1/item"]["post"];
@@ -250,7 +313,7 @@ async fn components_hold_the_model_schemas() {
 
     let mut names: Vec<&str> = schemas.keys().map(String::as_str).collect();
     names.sort();
-    assert_eq!(names, ["Item", "NewItem", "UpdatableItem"]);
+    assert_eq!(names, ["Item", "NewItem", "Note", "UpdatableItem"]);
     assert_eq!(schemas["Item"]["type"], "object");
     assert_eq!(schemas["Item"]["required"], json!(["content", "id"]));
 }
