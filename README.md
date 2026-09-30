@@ -115,7 +115,7 @@ apistos = { version = "0.9", features = ["chrono", "swagger-ui"] }
 schemars = { package = "apistos-schemars", version = "0.8" }
 ```
 
-#### actix-restful-cli
+### actix-restful-cli
 
 ``` bash
 actix-restful generate-model --name Project
