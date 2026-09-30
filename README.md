@@ -115,7 +115,7 @@ apistos = { version = "0.9", features = ["chrono", "swagger-ui"] }
 schemars = { package = "apistos-schemars", version = "0.8" }
 ```
 
-### actix-restful-cli
+### CLI: generate-model
 
 ``` bash
 actix-restful generate-model --name Project
@@ -191,7 +191,7 @@ With `--timestamps`, `Project` gets `created_at`, `updated_at` and `deleted_at` 
 actix-restful generate-model --name Project --fields --sqlx --migration --timestamps
 
 ```
-### CLI: generate relation
+### CLI: generate-relation
 
 
 #### Has-many relations
