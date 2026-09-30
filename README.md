@@ -139,18 +139,18 @@ struct Project {
 ```
 
 ``` rust
-use actix_restful::gen_documented_endpoint;
 use actix_web::web;
 use apistos::app::{BuildConfig, OpenApiWrapper};
 use apistos::spec::Spec;
 use apistos::SwaggerUIConfig;
+mod project;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()>{
     actix_web::HttpServer::new(|| {
         actix_web::App::new()
             .document(Spec::default())
-            .service(apistos::web::scope("v1").configure(gen_documented_endpoint!(Project, NewProject, UpdatableProject)))
+            .service(apistos::web::scope("v1").configure(project::configure)
             .app_data(web::Data::new(AppState{}))
             // serves the document on /openapi.json and Swagger UI on /swagger
             .build_with("/openapi.json", BuildConfig::default().with(SwaggerUIConfig::new(&"/swagger")))
