@@ -212,7 +212,10 @@ actix-restful generate-relation --parent Project --child Category --through Proj
 
 ```
 
-`--openapi`, `--sqlx`, `--postgres`, `--mysql` and `--timestamps` work as for the models: with `--sqlx`, `list_related` selects a page of the children ordered by id (`offset`, and `limit` of 20 by default and 100 at most), and looks the parent up only when the page is empty, to answer 404 for an unknown parent. With `--timestamps`, the soft deleted children, join rows and parents are skipped. 
+`--openapi`, `--sqlx`, `--postgres`, `--mysql` and `--timestamps` work as for the models: with `--sqlx`, `list_related` selects a page of the children ordered by id (`offset`, and `limit` of 20 by default and 100 at most), and looks the parent up only when the page is empty, to answer 404 for an unknown parent.
+
+With `--timestamps`, the soft deleted children, join rows and parents are skipped. 
+
 With `--migration` creates the migration indexing the foreign key (`<timestamp>_index_book_project_id.sql`), generate it after the migration creating the table.
 
 This command produces:
