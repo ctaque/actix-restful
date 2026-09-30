@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logo.png" alt="actix-restful logo" width="100">
+</p>
+
 ### Motivation
 
 This project aims to simplify code generation for faster implementation of Json CRUD operations with Actix.
