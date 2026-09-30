@@ -178,12 +178,6 @@ With `--migration` (which also requires `--fields`), the CLI creates the migrati
 | `Vec<u8>` | `BLOB` | `BYTEA` | `BLOB` |
 | `Vec<String>`, `Vec<i16>`, `Vec<i32>`, `Vec<i64>`, `Vec<f64>`, `Vec<bool>` | | `TEXT[]`, `INT2[]`, `INT4[]`, `INT8[]`, `FLOAT8[]`, `BOOL[]` | |
 
-The PostgreSQL names are the ones of sqlx, aliases of the standard types: `INT2`, `INT4` and `INT8` are `SMALLINT`, `INTEGER` and `BIGINT`, `FLOAT4` and `FLOAT8` are `REAL` and `DOUBLE PRECISION`, `BOOL` is `BOOLEAN`. On MySQL, four types differ from sqlx: `String` is a `VARCHAR(255)` (sqlx names a `VARCHAR` without a length, which is not a valid column type), `DateTime<Utc>` is a `DATETIME(6)` rather than a `TIMESTAMP` (sqlx writes the UTC date and time, stored as is by `DATETIME` where `TIMESTAMP` would convert it from the session time zone), and `NaiveDateTime` and `NaiveTime` keep their microseconds with `DATETIME(6)` and `TIME(6)`.
-
-As the column types come from sqlx, the CLI is built with the SQLite, PostgreSQL and MySQL drivers of sqlx (it never connects to a database): its first build is longer, and needs a C compiler for the bundled SQLite.
-
-The `id` column is `INTEGER PRIMARY KEY AUTOINCREMENT` on SQLite, `BIGSERIAL PRIMARY KEY` on PostgreSQL and `BIGINT AUTO_INCREMENT PRIMARY KEY` on MySQL. The chrono import is added to the model for the date types. With `--migration`, a type without a column type in the targeted database (like `Vec<String>` on SQLite) is refused when prompting for the fields:
-
 ``` bash
 
 actix-restful generate-model --name Project --fields --sqlx --migration --postgres
@@ -224,51 +218,6 @@ This command produces:
 
 src/Project.rs: the Project, NewProject and UpdatableProject structs, the query structs, and the Model, NewModel and UpdatableModel implementations filled in with sqlx queries;
 ```migrations/<timestamp>_create_project.sql.```
-
-Wire the model into main.rs
-
-```rust
-#[path = "Project.rs"]
-mod project;
-#[path = "helpers.rs"]
-mod shared; // shared module must export the AppState struct which is in turn imported into the generated models files
-use actix_web::{web, App, HttpServer};
-use sqlx::SqlitePool;
- 
-#[actix_web::main]
-async fn main() -> std::io::Result<()> {
-    let pool = SqlitePool::connect("sqlite://data.db?mode=rwc").await.unwrap();
-    sqlx::migrate!().run(&pool).await.unwrap();
-    let state = web::Data::new(shared::AppState { pool });
-
-    actix_web::HttpServer::new(move || {
-        let spec = Spec {
-            info: Info {
-                title: "MyApp REST API".to_string(),
-                version: "1.0.0".to_string(),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        actix_web::App::new()
-            .document(spec)
-            // Actix does not fall through between scopes sharing a prefix,
-            // so resources living under the same scope must be registered together
-            .service(
-                apistos::web::scope("v1")
-                  .configure(project::configure) // Where the magic operates
-            )
-            .app_data(state.clone())
-            .build_with(
-                "/openapi.json",
-                BuildConfig::default().with(SwaggerUIConfig::new(&"/swagger")),
-            )
-    })
-    .bind(("127.0.0.1", 8085))?
-    .run()
-    .await
-}
-```
 
 #### Examples :
 
