@@ -51,17 +51,13 @@ Wire the model into `main.rs`, which declares the `AppState` imported by the gen
 
 ```rust
 mod project;
-
+use crate::shared::AppState;
 use actix_web::web;
 use apistos::app::{BuildConfig, OpenApiWrapper};
 use apistos::info::Info;
 use apistos::spec::Spec;
 use apistos::SwaggerUIConfig;
 use sqlx::SqlitePool;
-
-pub struct AppState {
-    pub pool: SqlitePool,
-}
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
