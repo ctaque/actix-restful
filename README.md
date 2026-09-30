@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="logo.png" alt="actix-restful logo" width="300">
+  <img src="logo.png" alt="octopux logo" width="300">
 </p>
 
-# actix-restful
+# octopux
 
 Generate JSON CRUD endpoints for [Actix Web](https://actix.rs) from your structs, with little boilerplate.
 
@@ -12,7 +12,7 @@ Generate JSON CRUD endpoints for [Actix Web](https://actix.rs) from your structs
 - **Has-many and many-to-many relations**, listed on `GET /{model}/{id}/{relation}`
 - **A CLI** generating the models, relations and SQL migrations
 
-| actix-restful | Actix Web |
+| octopux | Actix Web |
 | --- | --- |
 | `v0.8.0` | v4 |
 | `v0.1.0` | v3 |
@@ -36,12 +36,12 @@ Generate JSON CRUD endpoints for [Actix Web](https://actix.rs) from your structs
 ### The library
 
 ```bash
-cargo add --git https://github.com/ctaque/actix-restful --tag v0.8.0 actix-restful
+cargo add --git https://github.com/ctaque/octopux --tag v0.8.0 octopux
 cargo add actix-web
 cargo add serde --features derive
 ```
 
-`serde` is only needed for the `Serialize` / `Deserialize` derives of your models: the generated code only goes through `actix-restful`, which re-exports `async_trait` and `anyhow`.
+`serde` is only needed for the `Serialize` / `Deserialize` derives of your models: the generated code only goes through `octopux`, which re-exports `async_trait` and `anyhow`.
 
 Optional features:
 
@@ -51,7 +51,7 @@ Optional features:
 | `openapi` | The documented routes (see [OpenAPI documentation](#openapi-documentation-with-apistos)) | `cargo add apistos --features chrono,swagger-ui`<br>`cargo add schemars --rename schemars --package apistos-schemars` |
 
 ```bash
-cargo add --git https://github.com/ctaque/actix-restful --tag v0.8.0 actix-restful --features openapi,sqlx
+cargo add --git https://github.com/ctaque/octopux --tag v0.8.0 octopux --features openapi,sqlx
 ```
 
 Add `chrono` (`cargo add chrono --features serde`) when your models have date fields or use `--timestamps`.
@@ -61,7 +61,7 @@ Add `chrono` (`cargo add chrono --features serde`) when your models have date fi
 Once per machine:
 
 ```bash
-cargo install --git https://github.com/ctaque/actix-restful --tag v0.8.0 actix-restful-cli   # installs the `actix-restful` binary
+cargo install --git https://github.com/ctaque/octopux --tag v0.8.0 octopux-cli   # installs the `octopux` binary
 cargo install sqlx-cli                                                                        # optional, for `sqlx migrate run`
 ```
 
@@ -73,7 +73,7 @@ This walkthrough builds a `Project` API persisted in SQLite with sqlx and docume
 
 ```bash
 cargo new my-api && cd my-api/src
-actix-restful generate-model --name Project --fields --sqlx --migration --timestamps --openapi
+octopux generate-model --name Project --fields --sqlx --migration --timestamps --openapi
 Field name: title
 Type of `title` (number or custom type) [String]:
 Field name: stars
@@ -171,7 +171,7 @@ A resource is made of three structs, each with a derive generating its HTTP hand
 | `NewProject` | `HttpCreate` | `NewModel` (`save`) | `POST /project` |
 | `UpdatableProject` | `HttpUpdate` | `UpdatableModel` (`update`) | `PUT /project/{id}` |
 
-The route prefix comes from `#[actix_restful_info(path = "project")]` on the model, and the macros mount the 5 routes:
+The route prefix comes from `#[octopux_info(path = "project")]` on the model, and the macros mount the 5 routes:
 
 - `gen_endpoint!(Project, NewProject, UpdatableProject)` on a plain Actix app;
 - `gen_documented_endpoint!(Project, NewProject, UpdatableProject)` on an apistos app (`openapi` feature). This is what the generated `configure` function calls.
@@ -184,7 +184,7 @@ The traits can be implemented by hand, see [`examples/simple`](examples/simple/s
 
 ```toml
 [dependencies]
-actix-restful = { version = "0.8", git = "https://github.com/ctaque/actix-restful", features = ["openapi"] }
+octopux = { version = "0.8", git = "https://github.com/ctaque/octopux", features = ["openapi"] }
 apistos = { version = "0.9", features = ["chrono", "swagger-ui"] }
 # apistos relies on its fork of schemars
 schemars = { package = "apistos-schemars", version = "0.8" }
@@ -204,7 +204,7 @@ struct ListQuery {
 /// Doc comments are used as schema descriptions
 #[derive(Default, Serialize, Deserialize, JsonSchema, ApiComponent, HttpFindListDelete)]
 #[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]
-#[actix_restful_info(path = "project")]
+#[octopux_info(path = "project")]
 struct Project {
     ...
 }
@@ -244,7 +244,7 @@ With the `sqlx` feature, three derives implement the model traits with [sqlx](ht
 Your application depends on sqlx itself, for `sqlx::FromRow` and the pool, with the driver of its database and a runtime.
 
 ```rust
-use actix_restful::{HttpCreate, HttpFindListDelete, HttpUpdate, SqlxModel, SqlxNewModel, SqlxUpdatableModel, actix_restful_info};
+use octopux::{HttpCreate, HttpFindListDelete, HttpUpdate, SqlxModel, SqlxNewModel, SqlxUpdatableModel, octopux_info};
 
 #[derive(Deserialize)]
 pub struct ListQuery {
@@ -255,7 +255,7 @@ pub struct ListQuery {
 #[derive(Serialize, Deserialize, sqlx::FromRow, HttpFindListDelete, SqlxModel)]
 #[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]
 #[sqlx_model(database = "postgres", timestamps, soft_delete)]
-#[actix_restful_info(path = "project")]
+#[octopux_info(path = "project")]
 pub struct Project {
     pub id: Id,
     pub title: String,
@@ -305,7 +305,7 @@ pub struct UpdatableProject {
 With `before_save`, the struct implements `BeforeSave`, which transforms the payload before it is written, e.g. to hash a password. It is async and receives the application state; an error aborts the query and answers 500:
 
 ```rust
-use actix_restful::{BeforeSave, anyhow::Result, async_trait};
+use octopux::{BeforeSave, anyhow::Result, async_trait};
 
 #[derive(Serialize, Deserialize, HttpCreate, SqlxNewModel)]
 #[http_create(SaveQuery, AppState)]
@@ -333,13 +333,13 @@ A relation lists the children of a model on `GET /{path}/{id}/{relation}`, e.g. 
 The `HasMany` trait is implemented on a type standing for the relation, so a model can have several relations, even towards the same child model:
 
 ```rust
-use actix_restful::{HasMany, anyhow::Result, async_trait, gen_relation_endpoint};
+use octopux::{HasMany, anyhow::Result, async_trait, gen_relation_endpoint};
 
 pub struct ProjectBooks;
 
 #[async_trait]
 impl HasMany for ProjectBooks {
-    type Parent = Project;          // its `actix_restful_info` path prefixes the route
+    type Parent = Project;          // its `octopux_info` path prefixes the route
     type Id = Id;
     type Query = ProjectBooksQuery; // e.g. `offset` and `limit`
     type Result = Vec<Book>;
@@ -370,12 +370,12 @@ The CLI can generate relations for you, see [generate-relation](#generate-relati
 
 ## CLI reference
 
-The `actix-restful` binary writes the files in the working directory (usually `src`). The generated files only rely on `actix-restful` and `serde`, plus `sqlx`, `chrono` and `apistos` depending on the options.
+The `octopux` binary writes the files in the working directory (usually `src`). The generated files only rely on `octopux` and `serde`, plus `sqlx`, `chrono` and `apistos` depending on the options.
 
 ### generate-model
 
 ```bash
-actix-restful generate-model --name Project [OPTIONS]
+octopux generate-model --name Project [OPTIONS]
 ```
 
 Generates `project.rs`, to declare with `mod project;`. Its structs are public, and it imports `AppState` from the crate root (`use crate::AppState;`): declare your application state in `main.rs` or `lib.rs`, or change this import.
@@ -398,7 +398,7 @@ Without `--openapi`, mount the routes with `gen_endpoint!(Project, NewProject, U
 The CLI asks for the name and type of each field. The type is picked by its number in the menu, or typed as any Rust type, and defaults to `String`; an empty name ends the input. The fields are added to `Project`, `NewProject` and `UpdatableProject`, next to the `id: Id` field that is always generated:
 
 ```
-$ actix-restful generate-model --name Project --fields
+$ octopux generate-model --name Project --fields
 Enter the model fields (empty name to finish), `id: Id` is already declared
 Wrap a type in `Option<T>` (e.g. `Option<i32>`) to make the field optional, its column is then nullable
 Field name: title
@@ -413,10 +413,10 @@ Successfully generated model project.rs, declare it with `mod project;`
 
 #### `--sqlx`
 
-Requires `--fields` with at least one field, and the `sqlx` feature of actix-restful. `Project`, `NewProject` and `UpdatableProject` derive `SqlxModel`, `SqlxNewModel` and `SqlxUpdatableModel` instead of leaving the `find`, `list`, `delete`, `save` and `update` functions to fill: the queries on the `project` table run on the `pool` field of your `AppState`. `Project` and `UpdatableProject` also derive `sqlx::FromRow`, and `ListQuery` gets the `offset` and `limit` of the page.
+Requires `--fields` with at least one field, and the `sqlx` feature of octopux. `Project`, `NewProject` and `UpdatableProject` derive `SqlxModel`, `SqlxNewModel` and `SqlxUpdatableModel` instead of leaving the `find`, `list`, `delete`, `save` and `update` functions to fill: the queries on the `project` table run on the `pool` field of your `AppState`. `Project` and `UpdatableProject` also derive `sqlx::FromRow`, and `ListQuery` gets the `offset` and `limit` of the page.
 
 ```bash
-actix-restful generate-model --name Project --fields --sqlx --postgres
+octopux generate-model --name Project --fields --sqlx --postgres
 ```
 
 #### `--migration`
@@ -450,7 +450,7 @@ Each field type is mapped to the column type sqlx declares for it (`<T as sqlx::
 </details>
 
 ```bash
-actix-restful generate-model --name Project --fields --sqlx --migration --postgres
+octopux generate-model --name Project --fields --sqlx --migration --postgres
 ```
 
 #### `--timestamps`
@@ -461,7 +461,7 @@ actix-restful generate-model --name Project --fields --sqlx --migration --postgr
 - With `--migration`, the table gets nullable `created_at`, `updated_at` and `deleted_at` columns.
 
 ```bash
-actix-restful generate-model --name Project --fields --sqlx --migration --timestamps
+octopux generate-model --name Project --fields --sqlx --migration --timestamps
 ```
 
 #### `--force`
@@ -471,7 +471,7 @@ actix-restful generate-model --name Project --fields --sqlx --migration --timest
 ### generate-relation
 
 ```bash
-actix-restful generate-relation --parent Project --child Book [OPTIONS]
+octopux generate-relation --parent Project --child Book [OPTIONS]
 ```
 
 Generates a [has-many relation](#has-many-relations) in `project_books.rs` for the `books` of a `Project`, to declare with `mod project_books;` and mount with `.configure(project_books::configure)` in the scope of the parent routes. It imports `Project` and `Id` from `crate::project` and `Book` from `crate::book`, as generated by `generate-model`.
@@ -492,13 +492,13 @@ Generates a [has-many relation](#has-many-relations) in `project_books.rs` for t
 One-to-many: the books of a project, on `GET /project/{id}/books`:
 
 ```bash
-actix-restful generate-relation --parent Project --child Book --foreign-key=project_id --sqlx --openapi --migration --postgres
+octopux generate-relation --parent Project --child Book --foreign-key=project_id --sqlx --openapi --migration --postgres
 ```
 
 Many-to-many: the categories of a project, through a `ProjectCategory` join model whose `project_id` and `category_id` columns reference the parent and the child, on `GET /project/{id}/categories`:
 
 ```bash
-actix-restful generate-relation --parent Project --child Category --through ProjectCategory --sqlx --openapi --migration --postgres
+octopux generate-relation --parent Project --child Category --through ProjectCategory --sqlx --openapi --migration --postgres
 ```
 
 ## Examples

@@ -1,6 +1,6 @@
 
     use serde::{Serialize, Deserialize};
-    use actix_restful::{
+    use octopux::{
         HttpCreate,
         HttpFindListDelete,
         HttpUpdate,
@@ -9,7 +9,7 @@
         UpdatableModel,
         RestfulPathInfo
     };
-    use actix_restful_derive::{HttpCreate, HttpFindListDelete, HttpUpdate, actix_restful_info};
+    use octopux_derive::{HttpCreate, HttpFindListDelete, HttpUpdate, octopux_info};
 
     use anyhow::Result;
     use async_trait::async_trait;
@@ -33,7 +33,7 @@
     
     #[derive(Default, Serialize, Deserialize, HttpFindListDelete)]
     #[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]
-    #[actix_restful_info(path = "test")]
+    #[octopux_info(path = "test")]
     struct Test {
         id: Id,
     }

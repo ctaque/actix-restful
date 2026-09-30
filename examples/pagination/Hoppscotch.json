@@ -1,7 +1,7 @@
 [
   {
     "v": 1,
-    "name": "actix-restful-pagination",
+    "name": "octopux-pagination",
     "folders": [],
     "requests": [
       {

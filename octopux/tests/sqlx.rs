@@ -1,8 +1,8 @@
 //! End-to-end tests of the routes of models deriving `SqlxModel`, `SqlxNewModel` and `SqlxUpdatableModel`,
 //! on an in-memory SQLite database.
 
-use actix_restful::{
-    actix_restful_info, anyhow, async_trait, gen_endpoint, BeforeSave, HttpCreate, HttpFindListDelete, HttpUpdate, SqlxModel, SqlxNewModel,
+use octopux::{
+    octopux_info, anyhow, async_trait, gen_endpoint, BeforeSave, HttpCreate, HttpFindListDelete, HttpUpdate, SqlxModel, SqlxNewModel,
     SqlxUpdatableModel,
 };
 use actix_web::{http::StatusCode, test, web, App};
@@ -37,7 +37,7 @@ mod project {
     #[derive(Default, Serialize, Deserialize, sqlx::FromRow, HttpFindListDelete, SqlxModel)]
     #[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]
     #[sqlx_model(database = "sqlite", pool = "db", timestamps, soft_delete, default_limit = 2)]
-    #[actix_restful_info(path = "project")]
+    #[octopux_info(path = "project")]
     pub struct Project {
         pub id: Id,
         pub name: String,
@@ -73,7 +73,7 @@ mod tag {
     #[derive(Default, Serialize, Deserialize, sqlx::FromRow, HttpFindListDelete, SqlxModel)]
     #[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]
     #[sqlx_model(database = "sqlite", table = "tags", pool = "db")]
-    #[actix_restful_info(path = "tag")]
+    #[octopux_info(path = "tag")]
     pub struct Tag {
         pub id: Id,
         pub label: String,
@@ -102,7 +102,7 @@ mod label {
     #[derive(Default, Serialize, Deserialize, sqlx::FromRow, HttpFindListDelete, SqlxModel)]
     #[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]
     #[sqlx_model(database = "sqlite", pool = "db")]
-    #[actix_restful_info(path = "label")]
+    #[octopux_info(path = "label")]
     pub struct Label {
         pub id: Id,
         pub name: String,
@@ -288,7 +288,7 @@ macro_rules! typed_models {
         #[allow(dead_code)]
         mod $module {
             use super::{DeleteQuery, FindQuery, Id, ListQuery, SaveQuery, UpdateQuery};
-            use actix_restful::{HttpCreate, HttpFindListDelete, HttpUpdate, SqlxModel, SqlxNewModel, SqlxUpdatableModel};
+            use octopux::{HttpCreate, HttpFindListDelete, HttpUpdate, SqlxModel, SqlxNewModel, SqlxUpdatableModel};
             use chrono::{DateTime, Utc};
             use serde::{Deserialize, Serialize};
 

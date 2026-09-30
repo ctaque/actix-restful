@@ -3,8 +3,8 @@
 //! Query fields are only read by the extractors, to be documented.
 #![allow(dead_code)]
 
-use actix_restful::{
-    actix_restful_info, gen_documented_endpoint, gen_documented_relation_endpoint, HasMany,
+use octopux::{
+    octopux_info, gen_documented_endpoint, gen_documented_relation_endpoint, HasMany,
     HttpCreate, HttpFindListDelete, HttpUpdate, Model, NewModel, UpdatableModel,
 };
 use actix_web::{http::StatusCode, test, web, App};
@@ -40,7 +40,7 @@ struct UpdateQuery {}
 
 #[derive(Clone, Default, Serialize, Deserialize, JsonSchema, ApiComponent, HttpFindListDelete)]
 #[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]
-#[actix_restful_info(path = "item")]
+#[octopux_info(path = "item")]
 struct Item {
     id: Id,
     content: String,

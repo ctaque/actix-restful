@@ -1,12 +1,12 @@
 use serde::{Serialize, Deserialize};
-use actix_restful::{
+use octopux::{
     HttpCreate,
     HttpFindListDelete,
     HttpUpdate,
     Model,
     NewModel,
     UpdatableModel,
-    actix_restful_info,
+    octopux_info,
     anyhow::Result,
     async_trait,
     gen_endpoint,
@@ -38,7 +38,7 @@ type Id = i64;
 
 #[derive(Default, Serialize, Deserialize, HttpFindListDelete)]
 #[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]
-#[actix_restful_info(path = "item")]
+#[octopux_info(path = "item")]
 struct Item {
     id: Id,
     content: String,

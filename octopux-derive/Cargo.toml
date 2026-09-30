@@ -1,8 +1,8 @@
 [package]
-name = "actix-restful-derive"
+name = "octopux-derive"
 version.workspace = true
 edition.workspace = true
-description = "Derive and procedural macros for actix-restful"
+description = "Derive and procedural macros for octopux"
 license.workspace = true
 repository.workspace = true
 authors.workspace = true

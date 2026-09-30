@@ -1,18 +1,18 @@
     use crate::shared::AppState;
     use serde::{Serialize, Deserialize};
-    use actix_restful::{
+    use octopux::{
         HttpCreate,
         HttpFindListDelete,
         HttpUpdate,
         SqlxModel,
         SqlxNewModel,
         SqlxUpdatableModel,
-        actix_restful_info,
+        octopux_info,
     };
     use chrono::{DateTime, Utc};
     use apistos::ApiComponent;
     use schemars::JsonSchema;
-    use actix_restful::gen_documented_endpoint;
+    use octopux::gen_documented_endpoint;
 
     #[derive(Default, Deserialize, JsonSchema, ApiComponent)]
     struct FindQuery {}
@@ -34,7 +34,7 @@
     #[derive(Default, Serialize, Deserialize, JsonSchema, ApiComponent, sqlx::FromRow, HttpFindListDelete, SqlxModel)]
     #[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]
     #[sqlx_model(database = "postgres", timestamps, soft_delete)]
-    #[actix_restful_info(path = "model3")]
+    #[octopux_info(path = "model3")]
     struct Model3 {
         id: Id,
         field_opt: String,
@@ -60,7 +60,7 @@
     }
 
     // Registers the documented routes of the model3 endpoint
-    // (actix-restful `openapi` feature), to mount with `.configure(model3::configure)`
+    // (octopux `openapi` feature), to mount with `.configure(model3::configure)`
     pub fn configure(cfg: &mut apistos::web::ServiceConfig) {
         gen_documented_endpoint!(Model3, NewModel3, UpdatableModel3)(cfg)
     }

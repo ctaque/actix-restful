@@ -3,9 +3,9 @@ resolver = "2"
 
 
 members = [
-    "actix-restful",
-    "actix-restful-derive",
-    "actix-restful-cli",
+    "octopux",
+    "octopux-derive",
+    "octopux-cli",
     "examples/*",
 ]
 
@@ -13,7 +13,7 @@ members = [
 version = "0.8.0"
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/ctaque/actix-restful"
+repository = "https://github.com/ctaque/octopux"
 authors = ["Cyprien Taque"]
 
 [profile.release.build-override]
@@ -21,8 +21,8 @@ strip = false
 
 [workspace.dependencies]
 # Crates internes
-actix-restful = { version = "0.8.0", path = "actix-restful" }
-actix-restful-derive = { version = "0.8.0", path = "actix-restful-derive" }
+octopux = { version = "0.8.0", path = "octopux" }
+octopux-derive = { version = "0.8.0", path = "octopux-derive" }
 
 # Dépendances externes
 actix-web = "4"

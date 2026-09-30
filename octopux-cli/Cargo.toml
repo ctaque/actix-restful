@@ -1,12 +1,12 @@
 [package]
-name = "actix-restful-cli"
+name = "octopux-cli"
 version.workspace = true
 edition.workspace = true
-description = "CLI to generate base models for actix-restful"
+description = "CLI to generate base models for octopux"
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-default-run = "actix-restful"
+default-run = "octopux"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -17,5 +17,5 @@ chrono.workspace = true
 sqlx = { workspace = true, features = ["mysql"] }
 
 [[bin]]
-name = "actix-restful"
+name = "octopux"
 path = "src/main.rs"

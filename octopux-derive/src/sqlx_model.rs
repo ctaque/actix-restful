@@ -150,13 +150,13 @@ fn not_deleted(config: &Config) -> &'static str {
 }
 
 fn now() -> TokenStream {
-    quote! { ::actix_restful::__private::chrono::Utc::now() }
+    quote! { ::octopux::__private::chrono::Utc::now() }
 }
 
 // Binds `this`, the payload, transformed by `BeforeSave` with the `before_save` option
 fn this(config: &Config, app_state: &syn::Ident) -> TokenStream {
     if config.before_save {
-        quote! { let this = <Self as ::actix_restful::BeforeSave<#app_state>>::before_save(self, state).await?; }
+        quote! { let this = <Self as ::octopux::BeforeSave<#app_state>>::before_save(self, state).await?; }
     } else {
         quote! { let this = self; }
     }
@@ -188,7 +188,7 @@ pub fn impl_sqlx_model(ast: &syn::DeriveInput) -> syn::Result<TokenStream> {
         (true, true) => {
             let sql = format!("UPDATE {} SET deleted_at = {} WHERE id = {}{} RETURNING *", table, p[0], p[1], not_deleted(&config));
             quote! {
-                let model = ::actix_restful::__private::sqlx::query_as::<_, #name>(#sql)
+                let model = ::octopux::__private::sqlx::query_as::<_, #name>(#sql)
                     .bind(#now)
                     .bind(&self.id)
                     .fetch_one(&state.#pool)
@@ -199,15 +199,15 @@ pub fn impl_sqlx_model(ast: &syn::DeriveInput) -> syn::Result<TokenStream> {
         (true, false) => {
             let sql = format!("UPDATE {} SET deleted_at = {} WHERE id = {}{}", table, p[0], p[1], not_deleted(&config));
             quote! {
-                let result = ::actix_restful::__private::sqlx::query(#sql)
+                let result = ::octopux::__private::sqlx::query(#sql)
                     .bind(#now)
                     .bind(&self.id)
                     .execute(&state.#pool)
                     .await?;
                 if result.rows_affected() == 0 {
-                    return Err(::actix_restful::anyhow::anyhow!("ENTITY_NOT_FOUND"));
+                    return Err(::octopux::anyhow::anyhow!("ENTITY_NOT_FOUND"));
                 }
-                let model = ::actix_restful::__private::sqlx::query_as::<_, #name>(#select_by_id)
+                let model = ::octopux::__private::sqlx::query_as::<_, #name>(#select_by_id)
                     .bind(&self.id)
                     .fetch_one(&state.#pool)
                     .await?;
@@ -216,7 +216,7 @@ pub fn impl_sqlx_model(ast: &syn::DeriveInput) -> syn::Result<TokenStream> {
         (false, true) => {
             let sql = format!("DELETE FROM {} WHERE id = {} RETURNING *", table, p[0]);
             quote! {
-                let model = ::actix_restful::__private::sqlx::query_as::<_, #name>(#sql)
+                let model = ::octopux::__private::sqlx::query_as::<_, #name>(#sql)
                     .bind(&self.id)
                     .fetch_one(&state.#pool)
                     .await?;
@@ -226,11 +226,11 @@ pub fn impl_sqlx_model(ast: &syn::DeriveInput) -> syn::Result<TokenStream> {
         (false, false) => {
             let sql = format!("DELETE FROM {} WHERE id = {}", table, p[0]);
             quote! {
-                let model = ::actix_restful::__private::sqlx::query_as::<_, #name>(#select_by_id)
+                let model = ::octopux::__private::sqlx::query_as::<_, #name>(#select_by_id)
                     .bind(&self.id)
                     .fetch_one(&state.#pool)
                     .await?;
-                ::actix_restful::__private::sqlx::query(#sql)
+                ::octopux::__private::sqlx::query(#sql)
                     .bind(&self.id)
                     .execute(&state.#pool)
                     .await?;
@@ -239,26 +239,26 @@ pub fn impl_sqlx_model(ast: &syn::DeriveInput) -> syn::Result<TokenStream> {
     };
     let (default_limit, max_limit) = (config.default_limit, config.max_limit);
     Ok(quote! {
-        #[::actix_restful::__private::async_trait]
-        impl ::actix_restful::Model<#id, #find_query, #list_query, ::std::vec::Vec<#name>, #delete_query, #name, #app_state> for #name {
-            async fn find(id: #id, _query: &#find_query, state: &#app_state) -> ::actix_restful::anyhow::Result<::std::boxed::Box<#name>> {
-                let model = ::actix_restful::__private::sqlx::query_as::<_, #name>(#find_sql)
+        #[::octopux::__private::async_trait]
+        impl ::octopux::Model<#id, #find_query, #list_query, ::std::vec::Vec<#name>, #delete_query, #name, #app_state> for #name {
+            async fn find(id: #id, _query: &#find_query, state: &#app_state) -> ::octopux::anyhow::Result<::std::boxed::Box<#name>> {
+                let model = ::octopux::__private::sqlx::query_as::<_, #name>(#find_sql)
                     .bind(id)
                     .fetch_one(&state.#pool)
                     .await?;
                 Ok(::std::boxed::Box::new(model))
             }
-            async fn list(query: &#list_query, state: &#app_state) -> ::actix_restful::anyhow::Result<::std::vec::Vec<#name>> {
+            async fn list(query: &#list_query, state: &#app_state) -> ::octopux::anyhow::Result<::std::vec::Vec<#name>> {
                 let offset = query.offset.unwrap_or(0) as i64;
                 let limit = query.limit.map_or(#default_limit, |l| (l as i64).min(#max_limit));
-                let models = ::actix_restful::__private::sqlx::query_as::<_, #name>(#list_sql)
+                let models = ::octopux::__private::sqlx::query_as::<_, #name>(#list_sql)
                     .bind(limit)
                     .bind(offset)
                     .fetch_all(&state.#pool)
                     .await?;
                 Ok(models)
             }
-            async fn delete(self: Self, _query: &#delete_query, state: &#app_state) -> ::actix_restful::anyhow::Result<#name> {
+            async fn delete(self: Self, _query: &#delete_query, state: &#app_state) -> ::octopux::anyhow::Result<#name> {
                 #delete_body
                 Ok(model)
             }
@@ -310,7 +310,7 @@ pub fn impl_sqlx_new_model(ast: &syn::DeriveInput) -> syn::Result<TokenStream> {
     let body = if db.returning() {
         let sql = format!("{} RETURNING *", insert);
         quote! {
-            let model = ::actix_restful::__private::sqlx::query_as::<_, #model>(#sql)
+            let model = ::octopux::__private::sqlx::query_as::<_, #model>(#sql)
                 #(#binds)*
                 .fetch_one(&state.#pool)
                 .await?;
@@ -318,11 +318,11 @@ pub fn impl_sqlx_new_model(ast: &syn::DeriveInput) -> syn::Result<TokenStream> {
     } else {
         let select = format!("SELECT * FROM {} WHERE id = ?", table);
         quote! {
-            let result = ::actix_restful::__private::sqlx::query(#insert)
+            let result = ::octopux::__private::sqlx::query(#insert)
                 #(#binds)*
                 .execute(&state.#pool)
                 .await?;
-            let model = ::actix_restful::__private::sqlx::query_as::<_, #model>(#select)
+            let model = ::octopux::__private::sqlx::query_as::<_, #model>(#select)
                 .bind(result.last_insert_id())
                 .fetch_one(&state.#pool)
                 .await?;
@@ -330,9 +330,9 @@ pub fn impl_sqlx_new_model(ast: &syn::DeriveInput) -> syn::Result<TokenStream> {
     };
     let this = this(&config, &app_state);
     Ok(quote! {
-        #[::actix_restful::__private::async_trait]
-        impl ::actix_restful::NewModel<#model, #save_query, #app_state> for #name {
-            async fn save(self: Self, _query: &#save_query, state: &#app_state) -> ::actix_restful::anyhow::Result<#model> {
+        #[::octopux::__private::async_trait]
+        impl ::octopux::NewModel<#model, #save_query, #app_state> for #name {
+            async fn save(self: Self, _query: &#save_query, state: &#app_state) -> ::octopux::anyhow::Result<#model> {
                 #this
                 #now
                 #body
@@ -382,7 +382,7 @@ pub fn impl_sqlx_updatable_model(ast: &syn::DeriveInput) -> syn::Result<TokenStr
     let body = if db.returning() {
         let sql = format!("{} RETURNING {}", update, returned.join(", "));
         quote! {
-            let model = ::actix_restful::__private::sqlx::query_as::<_, #name>(#sql)
+            let model = ::octopux::__private::sqlx::query_as::<_, #name>(#sql)
                 #(#binds)*
                 .bind(&this.id)
                 .fetch_one(&state.#pool)
@@ -391,12 +391,12 @@ pub fn impl_sqlx_updatable_model(ast: &syn::DeriveInput) -> syn::Result<TokenStr
     } else {
         let select = format!("SELECT {} FROM {} WHERE id = ?{}", returned.join(", "), table, not_deleted(&config));
         quote! {
-            ::actix_restful::__private::sqlx::query(#update)
+            ::octopux::__private::sqlx::query(#update)
                 #(#binds)*
                 .bind(&this.id)
                 .execute(&state.#pool)
                 .await?;
-            let model = ::actix_restful::__private::sqlx::query_as::<_, #name>(#select)
+            let model = ::octopux::__private::sqlx::query_as::<_, #name>(#select)
                 .bind(&this.id)
                 .fetch_one(&state.#pool)
                 .await?;
@@ -404,9 +404,9 @@ pub fn impl_sqlx_updatable_model(ast: &syn::DeriveInput) -> syn::Result<TokenStr
     };
     let this = this(&config, &app_state);
     Ok(quote! {
-        #[::actix_restful::__private::async_trait]
-        impl ::actix_restful::UpdatableModel<#name, #update_query, #app_state> for #name {
-            async fn update(self: Self, _query: &#update_query, state: &#app_state) -> ::actix_restful::anyhow::Result<#name> {
+        #[::octopux::__private::async_trait]
+        impl ::octopux::UpdatableModel<#name, #update_query, #app_state> for #name {
+            async fn update(self: Self, _query: &#update_query, state: &#app_state) -> ::octopux::anyhow::Result<#name> {
                 #this
                 #body
                 Ok(model)
@@ -544,7 +544,7 @@ mod tests {
             #[sqlx_model(database = "postgres", model = "User", before_save)]
             struct NewUser { password: String }
         });
-        assert!(new.contains("let this = < Self as :: actix_restful :: BeforeSave < AppState >> :: before_save (self , state) . await ?"), "{}", new);
+        assert!(new.contains("let this = < Self as :: octopux :: BeforeSave < AppState >> :: before_save (self , state) . await ?"), "{}", new);
         let updatable = expand(impl_sqlx_updatable_model, syn::parse_quote! {
             #[http_update(Id, UpdateQuery, User, FindQuery, AppState)]
             #[sqlx_model(database = "postgres", before_save)]

@@ -9,7 +9,7 @@ use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, StructOpt)]
-#[structopt(name = "actix-restful")]
+#[structopt(name = "octopux")]
 pub enum Opt {
     #[structopt(name = "generate-model")]
     GenerateModel {
@@ -21,7 +21,7 @@ pub enum Opt {
         /// Interactively prompts for the fields of the model, added to the model, creatable and updatable structs
         #[structopt(long = "fields")]
         fields: bool,
-        /// Derives SqlxModel, SqlxNewModel and SqlxUpdatableModel (actix-restful `sqlx` feature),
+        /// Derives SqlxModel, SqlxNewModel and SqlxUpdatableModel (octopux `sqlx` feature),
         /// which query the `pool` of the AppState, instead of leaving the model functions to fill, requires --fields
         #[structopt(long = "sqlx", requires = "fields")]
         sqlx: bool,
@@ -97,12 +97,12 @@ pub enum Opt {
 const OPENAPI_IMPORTS: &str = r#"
     use apistos::ApiComponent;
     use schemars::JsonSchema;
-    use actix_restful::gen_documented_endpoint;"#;
+    use octopux::gen_documented_endpoint;"#;
 
 const OPENAPI_CONFIGURE: &str = r#"
 
     // Registers the documented routes of the {entity_lower_case} endpoint
-    // (actix-restful `openapi` feature), to mount with `.configure({entity_lower_case}::configure)`
+    // (octopux `openapi` feature), to mount with `.configure({entity_lower_case}::configure)`
     pub fn configure(cfg: &mut apistos::web::ServiceConfig) {
         gen_documented_endpoint!({entity}, New{entity}, Updatable{entity})(cfg)
     }
@@ -599,7 +599,7 @@ const TRAIT_IMPORTS: &str = "
         Model,
         NewModel,
         UpdatableModel,
-        actix_restful_info,
+        octopux_info,
         anyhow::Result,
         async_trait,";
 
@@ -610,7 +610,7 @@ const SQLX_TRAIT_IMPORTS: &str = "
         SqlxModel,
         SqlxNewModel,
         SqlxUpdatableModel,
-        actix_restful_info,";
+        octopux_info,";
 
 const MODEL_IMPL: &str = r#"
 
@@ -647,7 +647,7 @@ const MODEL_TPL: &str = r#"
     // The application state, declared (or re-exported) at the root of the crate
     use crate::AppState;
     use serde::{Serialize, Deserialize};
-    use actix_restful::{{trait_imports}
+    use octopux::{{trait_imports}
     };{chrono_imports}{openapi_imports}
 
     #[derive(Default, Deserialize{openapi_derives})]
@@ -664,7 +664,7 @@ const MODEL_TPL: &str = r#"
 
     #[derive(Default, Serialize, Deserialize{openapi_derives}{model_derives})]
     #[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]{model_sqlx}
-    #[actix_restful_info(path = "{entity_lower_case}")]
+    #[octopux_info(path = "{entity_lower_case}")]
     pub struct {entity} {
         pub id: Id,{model_fields}
     }{model_impl}
@@ -820,14 +820,14 @@ fn relation_sqlx_body(relation: &Relation, timestamps: bool, dialect: Dialect) -
 fn render_relation(relation: &Relation, openapi: bool, sqlx: bool, timestamps: bool, dialect: Dialect) -> String {
     let (imports, derives, service_config, endpoint) = if openapi {
         (
-            "\n    use apistos::ApiComponent;\n    use schemars::JsonSchema;\n    use actix_restful::gen_documented_relation_endpoint;",
+            "\n    use apistos::ApiComponent;\n    use schemars::JsonSchema;\n    use octopux::gen_documented_relation_endpoint;",
             OPENAPI_DERIVES,
             "apistos::web::ServiceConfig",
             "gen_documented_relation_endpoint",
         )
     } else {
         (
-            "\n    use actix_restful::gen_relation_endpoint;",
+            "\n    use octopux::gen_relation_endpoint;",
             "",
             "actix_web::web::ServiceConfig",
             "gen_relation_endpoint",
@@ -875,7 +875,7 @@ const RELATION_TPL: &str = r#"
     use crate::{parent_module}::{{parent}, Id};
     use crate::{child_module}::{child};
     use serde::Deserialize;
-    use actix_restful::{
+    use octopux::{
         HasMany,
         anyhow::Result,
         async_trait,
@@ -995,7 +995,7 @@ mod tests {
         assert!(!model.contains("ApiComponent"));
         assert!(!model.contains("fn configure"));
         assert!(!model.contains("{openapi"));
-        assert!(model.contains("#[actix_restful_info(path = \"project\")]"));
+        assert!(model.contains("#[octopux_info(path = \"project\")]"));
     }
 
     #[test]
@@ -1003,7 +1003,7 @@ mod tests {
         let model = render_model("Project", true, false, false, &[], Dialect::Sqlite);
         assert!(model.contains("use apistos::ApiComponent;"));
         assert!(model.contains("use schemars::JsonSchema;"));
-        assert!(model.contains("use actix_restful::gen_documented_endpoint;"));
+        assert!(model.contains("use octopux::gen_documented_endpoint;"));
         assert!(model.contains("pub fn configure(cfg: &mut apistos::web::ServiceConfig) {"));
         assert!(model.contains("gen_documented_endpoint!(Project, NewProject, UpdatableProject)(cfg)"));
         // 5 query structs + Project, NewProject and UpdatableProject
@@ -1013,11 +1013,11 @@ mod tests {
     }
 
     #[test]
-    fn model_only_depends_on_actix_restful_and_the_app_state() {
+    fn model_only_depends_on_octopux_and_the_app_state() {
         let model = render_model("Project", false, false, false, &[], Dialect::Sqlite);
         assert!(model.contains("use crate::AppState;"));
-        assert!(model.contains("        actix_restful_info,\n        anyhow::Result,\n        async_trait,\n    };"));
-        assert!(!model.contains("actix_restful_derive"));
+        assert!(model.contains("        octopux_info,\n        anyhow::Result,\n        async_trait,\n    };"));
+        assert!(!model.contains("octopux_derive"));
         assert!(!model.contains("use anyhow"));
         assert!(!model.contains("use async_trait"));
     }
@@ -1113,8 +1113,8 @@ mod tests {
 
     #[test]
     fn sqlx_flag_requires_fields() {
-        assert!(Opt::from_iter_safe(&["actix-restful", "generate-model", "--name", "Project", "--sqlx"]).is_err());
-        assert!(Opt::from_iter_safe(&["actix-restful", "generate-model", "--name", "Project", "--sqlx", "--fields"]).is_ok());
+        assert!(Opt::from_iter_safe(&["octopux", "generate-model", "--name", "Project", "--sqlx"]).is_err());
+        assert!(Opt::from_iter_safe(&["octopux", "generate-model", "--name", "Project", "--sqlx", "--fields"]).is_ok());
     }
 
     #[test]
@@ -1128,8 +1128,8 @@ mod tests {
         assert!(!model.contains("impl "));
         assert!(!model.contains("async_trait"));
         assert!(!model.contains("SELECT"));
-        assert!(model.contains("        SqlxModel,\n        SqlxNewModel,\n        SqlxUpdatableModel,\n        actix_restful_info,\n    };"));
-        assert!(model.contains("#[derive(Default, Serialize, Deserialize, sqlx::FromRow, HttpFindListDelete, SqlxModel)]\n    #[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]\n    #[sqlx_model(database = \"sqlite\")]\n    #[actix_restful_info(path = \"project\")]"));
+        assert!(model.contains("        SqlxModel,\n        SqlxNewModel,\n        SqlxUpdatableModel,\n        octopux_info,\n    };"));
+        assert!(model.contains("#[derive(Default, Serialize, Deserialize, sqlx::FromRow, HttpFindListDelete, SqlxModel)]\n    #[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]\n    #[sqlx_model(database = \"sqlite\")]\n    #[octopux_info(path = \"project\")]"));
         assert!(model.contains("#[derive(Serialize, Deserialize, HttpCreate, SqlxNewModel)]\n    #[http_create(SaveQuery, AppState)]\n    #[sqlx_model(database = \"sqlite\", model = \"Project\")]\n    pub struct NewProject {"));
         assert!(model.contains("#[derive(Serialize, Deserialize, sqlx::FromRow, HttpUpdate, SqlxUpdatableModel)]\n    #[http_update(Id, UpdateQuery, Project, FindQuery, AppState)]\n    #[sqlx_model(database = \"sqlite\")]\n    pub struct UpdatableProject {"));
         assert!(!model.contains("{model") && !model.contains("_sqlx}") && !model.contains("_impl}"));
@@ -1168,8 +1168,8 @@ mod tests {
 
     #[test]
     fn migration_flag_requires_fields() {
-        assert!(Opt::from_iter_safe(&["actix-restful", "generate-model", "--name", "Project", "--migration"]).is_err());
-        assert!(Opt::from_iter_safe(&["actix-restful", "generate-model", "--name", "Project", "--migration", "--fields"]).is_ok());
+        assert!(Opt::from_iter_safe(&["octopux", "generate-model", "--name", "Project", "--migration"]).is_err());
+        assert!(Opt::from_iter_safe(&["octopux", "generate-model", "--name", "Project", "--migration", "--fields"]).is_ok());
     }
 
     #[test]
@@ -1294,7 +1294,7 @@ mod tests {
     #[test]
     fn database_flags_conflict() {
         let parse = |flags: &[&str]| {
-            let mut args = vec!["actix-restful", "generate-model", "--name", "Project"];
+            let mut args = vec!["octopux", "generate-model", "--name", "Project"];
             args.extend(flags);
             Opt::from_iter_safe(&args)
         };
@@ -1474,7 +1474,7 @@ mod tests {
     #[test]
     fn child_key_requires_through() {
         let parse = |flags: &[&str]| {
-            let mut args = vec!["actix-restful", "generate-relation", "--parent", "Project", "--child", "Category"];
+            let mut args = vec!["octopux", "generate-relation", "--parent", "Project", "--child", "Category"];
             args.extend(flags);
             Opt::from_iter_safe(&args)
         };
@@ -1486,7 +1486,7 @@ mod tests {
 
     #[test]
     fn force_is_accepted_by_the_generators() {
-        assert!(Opt::from_iter_safe(&["actix-restful", "generate-model", "--name", "Project", "--force"]).is_ok());
-        assert!(Opt::from_iter_safe(&["actix-restful", "generate-relation", "--parent", "Project", "--child", "Book", "--force"]).is_ok());
+        assert!(Opt::from_iter_safe(&["octopux", "generate-model", "--name", "Project", "--force"]).is_ok());
+        assert!(Opt::from_iter_safe(&["octopux", "generate-relation", "--parent", "Project", "--child", "Book", "--force"]).is_ok());
     }
 }

@@ -69,41 +69,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "actix-restful"
-version = "0.8.0"
-dependencies = [
- "actix-restful-derive",
- "actix-web",
- "anyhow",
- "apistos",
- "apistos-schemars",
- "async-trait",
- "chrono",
- "serde",
- "serde_json",
- "sqlx",
-]
-
-[[package]]
-name = "actix-restful-cli"
-version = "0.8.0"
-dependencies = [
- "chrono",
- "sqlx",
- "structopt",
-]
-
-[[package]]
-name = "actix-restful-derive"
-version = "0.8.0"
-dependencies = [
- "darling 0.13.1",
- "proc-macro2",
- "quote",
- "syn 1.0.82",
-]
-
-[[package]]
 name = "actix-router"
 version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1481,6 +1446,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "octopux"
+version = "0.8.0"
+dependencies = [
+ "actix-web",
+ "anyhow",
+ "apistos",
+ "apistos-schemars",
+ "async-trait",
+ "chrono",
+ "octopux-derive",
+ "serde",
+ "serde_json",
+ "sqlx",
+]
+
+[[package]]
+name = "octopux-cli"
+version = "0.8.0"
+dependencies = [
+ "chrono",
+ "sqlx",
+ "structopt",
+]
+
+[[package]]
+name = "octopux-derive"
+version = "0.8.0"
+dependencies = [
+ "darling 0.13.1",
+ "proc-macro2",
+ "quote",
+ "syn 1.0.82",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1490,12 +1490,12 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 name = "openapi"
 version = "0.0.0"
 dependencies = [
- "actix-restful",
  "actix-web",
  "anyhow",
  "apistos",
  "apistos-schemars",
  "chrono",
+ "octopux",
  "serde",
  "sqlx",
 ]
@@ -1504,9 +1504,9 @@ dependencies = [
 name = "pagination"
 version = "0.0.0"
 dependencies = [
- "actix-restful",
  "actix-web",
  "chrono",
+ "octopux",
  "serde",
 ]
 
@@ -1847,9 +1847,9 @@ dependencies = [
 name = "simple"
 version = "0.0.0"
 dependencies = [
- "actix-restful",
  "actix-web",
  "chrono",
+ "octopux",
  "serde",
 ]
 
