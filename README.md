@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="logo.png" alt="actix-restful logo" width="100">
+  <img src="logo.png" alt="actix-restful logo" width="300">
 </p>
 
-### Motivation
+### Actix-restful
 
 This project aims to simplify code generation for faster implementation of Json CRUD operations with Actix.
 
