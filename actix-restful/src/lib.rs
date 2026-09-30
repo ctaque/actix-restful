@@ -139,6 +139,9 @@ pub mod openapi;
 // The derive macros share their names with the traits they implement, like serde's
 // `Serialize`: `use actix_restful::HttpCreate;` imports both.
 pub use actix_restful_derive::{actix_restful_info, HttpCreate, HttpFindListDelete, HttpUpdate};
+// Implement `Model`, `NewModel` and `UpdatableModel` with sqlx queries, see the README
+#[cfg(feature = "sqlx")]
+pub use actix_restful_derive::{SqlxModel, SqlxNewModel, SqlxUpdatableModel};
 
 // The traits are declared with `async_trait` and return `anyhow::Result`: their implementations
 // need both, re-exported so that they do not have to be dependencies of the application.
@@ -154,6 +157,10 @@ pub mod __private {
     pub use actix_web;
     pub use async_trait::async_trait;
     pub use serde;
+    #[cfg(feature = "sqlx")]
+    pub use chrono;
+    #[cfg(feature = "sqlx")]
+    pub use sqlx;
 
     use crate::{HasMany, RestfulPathInfo};
     use actix_web::{web, HttpResponse};

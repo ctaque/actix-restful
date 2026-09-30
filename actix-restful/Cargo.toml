@@ -19,15 +19,28 @@ async-trait.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 apistos = { workspace = true, optional = true }
+# Queries of the `SqlxModel`, `SqlxNewModel` and `SqlxUpdatableModel` derives, the database drivers
+# and the runtime are the ones the application enables on its own sqlx dependency
+sqlx = { version = "0.9", default-features = false, features = ["chrono"], optional = true }
+# `created_at`, `updated_at` and `deleted_at` of the sqlx derives
+chrono = { workspace = true, optional = true }
 
 [features]
 openapi = ["dep:apistos"]
+sqlx = ["dep:sqlx", "dep:chrono"]
 
 [dev-dependencies]
 apistos.workspace = true
 schemars.workspace = true
 chrono.workspace = true
 
+# MySQL, to type check the MySQL queries of the sqlx derives
+sqlx = { workspace = true, features = ["mysql"] }
+
 [[test]]
 name = "openapi"
 required-features = ["openapi"]
+
+[[test]]
+name = "sqlx"
+required-features = ["sqlx"]

@@ -5,6 +5,8 @@ use darling::FromMeta;
 use quote::{quote, ToTokens};
 use syn::{ self, Result as SynResult, AttributeArgs, Token, parse_macro_input };
 
+mod sqlx_model;
+
 struct HttpCreateDeriveParams (syn::Ident, syn::Ident);
 impl syn::parse::Parse for HttpCreateDeriveParams {
     fn parse(input: syn::parse::ParseStream) -> SynResult<Self> {
@@ -256,6 +258,31 @@ fn impl_http_update_macro(ast: &syn::DeriveInput) -> proc_macro::TokenStream {
         }
     };
     gen.into()
+}
+
+// The sqlx derives also declare the `http_*` attribute they read the types from,
+// so that they can be used without the matching `Http*` derive.
+
+/// Implements `Model` on the struct with sqlx queries on its table,
+/// configured by `#[sqlx_model(database = "sqlite" | "postgres" | "mysql", ...)]`
+#[proc_macro_derive(SqlxModel, attributes(sqlx_model, http_find_list_delete))]
+pub fn sqlx_model(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let ast = parse_macro_input!(input as syn::DeriveInput);
+    sqlx_model::impl_sqlx_model(&ast).unwrap_or_else(|e| e.to_compile_error()).into()
+}
+
+/// Implements `NewModel` on the struct with an sqlx INSERT of its fields
+#[proc_macro_derive(SqlxNewModel, attributes(sqlx_model, http_create))]
+pub fn sqlx_new_model(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let ast = parse_macro_input!(input as syn::DeriveInput);
+    sqlx_model::impl_sqlx_new_model(&ast).unwrap_or_else(|e| e.to_compile_error()).into()
+}
+
+/// Implements `UpdatableModel` on the struct with an sqlx UPDATE of its fields
+#[proc_macro_derive(SqlxUpdatableModel, attributes(sqlx_model, http_update))]
+pub fn sqlx_updatable_model(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let ast = parse_macro_input!(input as syn::DeriveInput);
+    sqlx_model::impl_sqlx_updatable_model(&ast).unwrap_or_else(|e| e.to_compile_error()).into()
 }
 
 fn has_named_field(ast: &syn::DeriveInput, field: &str) -> bool {

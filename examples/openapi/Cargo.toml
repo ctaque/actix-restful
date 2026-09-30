@@ -10,7 +10,7 @@ release = false
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-actix-restful = { workspace = true, features = ["openapi"] }
+actix-restful = { workspace = true, features = ["openapi", "sqlx"] }
 actix-web.workspace = true
 anyhow.workspace = true
 apistos = { workspace = true, features = ["chrono", "swagger-ui"] }

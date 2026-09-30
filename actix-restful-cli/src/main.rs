@@ -1,7 +1,7 @@
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use sqlx::TypeInfo;
 use structopt::StructOpt;
-use std::fs::{self, File};
+use std::fs;
 use std::io::{self, BufRead, Write, Error};
 use std::path::{Path, PathBuf};
 use std::process;
@@ -21,7 +21,8 @@ pub enum Opt {
         /// Interactively prompts for the fields of the model, added to the model, creatable and updatable structs
         #[structopt(long = "fields")]
         fields: bool,
-        /// Fills the model functions with sqlx queries on the `pool` of the AppState, requires --fields
+        /// Derives SqlxModel, SqlxNewModel and SqlxUpdatableModel (actix-restful `sqlx` feature),
+        /// which query the `pool` of the AppState, instead of leaving the model functions to fill, requires --fields
         #[structopt(long = "sqlx", requires = "fields")]
         sqlx: bool,
         /// Creates the migration of the model table in the migrations folder next to src, requires --fields
@@ -37,9 +38,12 @@ pub enum Opt {
         #[structopt(long = "mysql")]
         mysql: bool,
         /// Adds `created_at`, `updated_at` and `deleted_at` columns to the model and the migration,
-        /// set by the sqlx queries, `delete` becomes a soft delete setting `deleted_at`
+        /// with --sqlx, they are set by the queries, and `delete` becomes a soft delete setting `deleted_at`
         #[structopt(long = "timestamps")]
         timestamps: bool,
+        /// Overwrites the model file when it already exists, the code written in it is lost
+        #[structopt(long = "force")]
+        force: bool,
     },
     /// Generates a has-many relation, served on `GET /{parent}/{id}/{relation}` and paginated
     #[structopt(name = "generate-relation")]
@@ -84,6 +88,9 @@ pub enum Opt {
         /// The models were generated with --timestamps: the soft deleted rows are skipped
         #[structopt(long = "timestamps")]
         timestamps: bool,
+        /// Overwrites the relation file when it already exists, the code written in it is lost
+        #[structopt(long = "force")]
+        force: bool,
     },
 }
 
@@ -249,7 +256,7 @@ const EMPTY_BODIES: [&str; 5] = [
     "            // update in db",
 ];
 
-// Pagination parameters of the list query, only generated with --sqlx
+// Pagination parameters of the list query, read by SqlxModel, only generated with --sqlx
 const LIST_QUERY_FIELDS: &str = r#"
         /// Number of rows to skip
         pub offset: Option<usize>,
@@ -260,12 +267,6 @@ const LIST_QUERY_FIELDS: &str = r#"
 // Clamps the pagination parameters of the list query before binding them
 const LIST_PAGINATION: &str = "            let offset = query.offset.unwrap_or(0) as i64;
             let limit = query.limit.map_or(DEFAULT_LIMIT, |l| (l as i64).min(MAX_LIMIT));";
-
-const LIST_LIMITS: &str = r#"
-    /// Number of rows returned by list when no limit is given
-    const DEFAULT_LIMIT: i64 = 20;
-    /// Maximum number of rows returned by list
-    const MAX_LIMIT: i64 = 100;"#;
 
 const RELATION_LIMITS: &str = r#"
     /// Number of children returned when no limit is given
@@ -392,177 +393,16 @@ impl Dialect {
     }
 }
 
-// How a generated query runs
-enum Fetch {
-    One,
-    All,
-    Execute,
-}
-
-// A query statement of a model function, its result is bound to `var` unless empty
-fn sqlx_query(var: &str, result: &str, sql: &str, binds: &[String], fetch: Fetch) -> String {
+// A query_as statement of `result` rows bound to `var`
+fn sqlx_fetch_all(var: &str, result: &str, sql: &str, binds: &[String]) -> String {
     let binds: String = binds
         .iter()
         .map(|b| format!("\n            .bind({})", b))
         .collect();
-    let (query, method) = match fetch {
-        Fetch::One => (format!("sqlx::query_as::<_, {}>", result), "fetch_one"),
-        Fetch::All => (format!("sqlx::query_as::<_, {}>", result), "fetch_all"),
-        Fetch::Execute => ("sqlx::query".to_string(), "execute"),
-    };
-    let binding = if var.is_empty() { String::new() } else { format!("let {} = ", var) };
     format!(
-        "            {}{}(\n                \"{}\",\n            ){}\n            .{}(&state.pool)\n            .await?;",
-        binding, query, sql, binds, method
+        "            let {} = sqlx::query_as::<_, {}>(\n                \"{}\",\n            ){}\n            .fetch_all(&state.pool)\n            .await?;",
+        var, result, sql, binds
     )
-}
-
-// Statements of a model function followed by its result
-fn sqlx_body(statements: &[String], ok: &str) -> String {
-    format!("{}\n            Ok({})", statements.join("\n"), ok)
-}
-
-// Bodies of find, list, delete, save and update querying the `{entity_lower_case}` table,
-// with RETURNING on SQLite and PostgreSQL, and a SELECT of the row on MySQL which has none,
-// `timestamps` sets `created_at` and `updated_at` on insert and `updated_at` on update,
-// and soft deletes: delete sets `deleted_at`, and find, list and update skip the deleted rows
-fn sqlx_bodies(fields: &[Field], timestamps: bool, dialect: Dialect) -> [String; 5] {
-    let table = "{entity_lower_case}";
-    let mysql = dialect == Dialect::Mysql;
-    let columns: Vec<&str> = fields.iter().map(|f| f.name.as_str()).collect();
-    let self_binds: Vec<String> = columns.iter().map(|c| format!("self.{}", c)).collect();
-    let (mut insert_columns, mut insert_binds) = (columns.clone(), self_binds.clone());
-    let (mut update_columns, mut update_binds) = (columns.clone(), self_binds.clone());
-    if timestamps {
-        insert_columns.extend(["created_at", "updated_at"]);
-        insert_binds.extend(["now".to_string(), "now".to_string()]);
-        update_columns.push("updated_at");
-        update_binds.push("Utc::now()".to_string());
-    }
-    let mut placeholders = dialect.placeholders(update_columns.len() + 1);
-    let id_placeholder = placeholders.pop().unwrap_or_default();
-    let assignments: Vec<String> = update_columns
-        .iter()
-        .zip(placeholders)
-        .map(|(c, p)| format!("{} = {}", c, p))
-        .collect();
-    update_binds.push("self.id".to_string());
-    let first = dialect.placeholders(1).join("");
-    let not_deleted = if timestamps { " AND deleted_at IS NULL" } else { "" };
-    let select_by_id = format!("SELECT * FROM {} WHERE id = {}", table, first);
-    let select_live_by_id = format!("{}{}", select_by_id, not_deleted);
-    let self_id = ["self.id".to_string()];
-    let insert = format!(
-        "INSERT INTO {} ({}) VALUES ({})",
-        table,
-        insert_columns.join(", "),
-        dialect.placeholders(insert_columns.len()).join(", ")
-    );
-    let update = format!(
-        "UPDATE {} SET {} WHERE id = {}{}",
-        table,
-        assignments.join(", "),
-        id_placeholder,
-        not_deleted
-    );
-    let (delete, delete_binds) = if timestamps {
-        let placeholders = dialect.placeholders(2);
-        (
-            format!("UPDATE {} SET deleted_at = {} WHERE id = {}{}", table, placeholders[0], placeholders[1], not_deleted),
-            vec!["now".to_string(), "self.id".to_string()],
-        )
-    } else {
-        (format!("DELETE FROM {} WHERE id = {}", table, first), self_id.to_vec())
-    };
-    let updated_columns = format!("id, {}", update_columns.join(", "));
-    let (mut delete_statements, mut save_statements, update_body) = if mysql {
-        // the soft deleted row is selected before its update, and gets the `deleted_at` it was given
-        let (model_var, deleted_at) = if timestamps {
-            ("mut model", vec!["            model.deleted_at = Some(now);".to_string()])
-        } else {
-            ("model", vec![])
-        };
-        (
-            [
-                vec![
-                    sqlx_query(model_var, "{entity}", &select_live_by_id, &self_id, Fetch::One),
-                    sqlx_query("", "", &delete, &delete_binds, Fetch::Execute),
-                ],
-                deleted_at,
-            ]
-            .concat(),
-            vec![
-                sqlx_query("result", "", &insert, &insert_binds, Fetch::Execute),
-                sqlx_query(
-                    "model",
-                    "{entity}",
-                    &select_by_id,
-                    &["result.last_insert_id() as Id".to_string()],
-                    Fetch::One,
-                ),
-            ],
-            sqlx_body(
-                &[
-                    sqlx_query("", "", &update, &update_binds, Fetch::Execute),
-                    sqlx_query(
-                        "model",
-                        "Updatable{entity}",
-                        &format!("SELECT {} FROM {} WHERE id = {}{}", updated_columns, table, first, not_deleted),
-                        &self_id,
-                        Fetch::One,
-                    ),
-                ],
-                "model",
-            ),
-        )
-    } else {
-        (
-            vec![sqlx_query("model", "{entity}", &format!("{} RETURNING *", delete), &delete_binds, Fetch::One)],
-            vec![sqlx_query("model", "{entity}", &format!("{} RETURNING *", insert), &insert_binds, Fetch::One)],
-            sqlx_body(
-                &[sqlx_query(
-                    "model",
-                    "Updatable{entity}",
-                    &format!("{} RETURNING {}", update, updated_columns),
-                    &update_binds,
-                    Fetch::One,
-                )],
-                "model",
-            ),
-        )
-    };
-    // created_at and updated_at get the same value
-    if timestamps {
-        save_statements.insert(0, "            let now = Utc::now();".to_string());
-        delete_statements.insert(0, "            let now = Utc::now();".to_string());
-    }
-    [
-        sqlx_body(
-            &[sqlx_query("model", "{entity}", &select_live_by_id, &["id".to_string()], Fetch::One)],
-            "Box::new(model)",
-        ),
-        sqlx_body(
-            &[
-                LIST_PAGINATION.to_string(),
-                sqlx_query(
-                    "models",
-                    "{entity}",
-                    &format!(
-                        "SELECT * FROM {}{} ORDER BY id LIMIT {}",
-                        table,
-                        if timestamps { " WHERE deleted_at IS NULL" } else { "" },
-                        dialect.placeholders(2).join(" OFFSET ")
-                    ),
-                    &["limit".to_string(), "offset".to_string()],
-                    Fetch::All,
-                ),
-            ],
-            "models",
-        ),
-        sqlx_body(&delete_statements, "model"),
-        sqlx_body(&save_statements, "model"),
-        update_body,
-    ]
 }
 
 // Fails with the fields whose type has no column type in the `dialect` database
@@ -589,6 +429,25 @@ fn render_migration(name: &str, fields: &[Field], timestamps: bool, dialect: Dia
         name.to_lowercase(),
         columns.join(",\n    ")
     ))
+}
+
+// Exits when `path` exists and is not to be overwritten, before prompting for anything
+fn refuse_overwrite(path: &str, force: bool, what: &str) {
+    if !force && Path::new(path).exists() {
+        eprintln!("{} already exists, use --force to overwrite it, {} not generated", path, what);
+        process::exit(1);
+    }
+}
+
+// Writes `<timestamp>_<suffix>.sql` in the migrations folder next to src
+fn write_migration(suffix: &str, sql: &str) -> Result<(), Error> {
+    let secs = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let dir = migrations_dir(&std::env::current_dir()?);
+    fs::create_dir_all(&dir)?;
+    let path = dir.join(format!("{}_{}.sql", migration_timestamp(secs), suffix)).display().to_string();
+    fs::write(&path, sql)?;
+    println!("Successfully generated migration {}", path);
+    Ok(())
 }
 
 // UTC timestamp prefixing the sqlx migrations, as YYYYMMDDHHMMSS
@@ -652,6 +511,26 @@ fn struct_fields(fields: &[Field]) -> String {
         .collect()
 }
 
+// `#[sqlx_model(...)]` of the model structs, `model` names the model returned by `save`
+fn sqlx_model_attribute(dialect: Dialect, model: Option<&str>, timestamps: bool, soft_delete: bool) -> String {
+    let database = match dialect {
+        Dialect::Sqlite => "sqlite",
+        Dialect::Postgres => "postgres",
+        Dialect::Mysql => "mysql",
+    };
+    let mut args = vec![format!("database = \"{}\"", database)];
+    if let Some(model) = model {
+        args.push(format!("model = \"{}\"", model));
+    }
+    if timestamps {
+        args.push("timestamps".to_string());
+    }
+    if soft_delete {
+        args.push("soft_delete".to_string());
+    }
+    format!("\n    #[sqlx_model({})]", args.join(", "))
+}
+
 fn render_model(name: &str, openapi: bool, sqlx: bool, timestamps: bool, fields: &[Field], dialect: Dialect) -> String {
     let (imports, derives, configure) = if openapi {
         (OPENAPI_IMPORTS, OPENAPI_DERIVES, OPENAPI_CONFIGURE)
@@ -671,35 +550,38 @@ fn render_model(name: &str, openapi: bool, sqlx: bool, timestamps: bool, fields:
     } else {
         (field_lines.clone(), field_lines.clone())
     };
-    let bodies = if sqlx {
-        sqlx_bodies(fields, timestamps, dialect)
+    // with --sqlx, the derives implement the model traits, left to fill otherwise
+    let tpl = if sqlx {
+        MODEL_TPL
+            .replace("{trait_imports}", SQLX_TRAIT_IMPORTS)
+            .replace("{model_impl}", "")
+            .replace("{new_impl}", "")
+            .replace("{updatable_impl}", "")
+            .replace("{result_types}", "")
+            .replace("{list_query_fields}", LIST_QUERY_FIELDS)
+            .replace("{model_derives}", ", sqlx::FromRow, HttpFindListDelete, SqlxModel")
+            .replace("{new_derives}", ", HttpCreate, SqlxNewModel")
+            .replace("{updatable_derives}", ", sqlx::FromRow, HttpUpdate, SqlxUpdatableModel")
+            .replace("{model_sqlx}", &sqlx_model_attribute(dialect, None, timestamps, timestamps))
+            .replace("{new_sqlx}", &sqlx_model_attribute(dialect, Some(name), timestamps, false))
+            .replace("{updatable_sqlx}", &sqlx_model_attribute(dialect, None, timestamps, timestamps))
     } else {
-        EMPTY_BODIES.map(String::from)
+        let [find_body, list_body, delete_body, save_body, update_body] = EMPTY_BODIES;
+        MODEL_TPL
+            .replace("{trait_imports}", TRAIT_IMPORTS)
+            .replace("{model_impl}", &MODEL_IMPL.replace("{find_body}", find_body).replace("{list_body}", list_body).replace("{delete_body}", delete_body))
+            .replace("{new_impl}", &NEW_IMPL.replace("{save_body}", save_body))
+            .replace("{updatable_impl}", &UPDATABLE_IMPL.replace("{update_body}", update_body))
+            .replace("{result_types}", "\n    pub type ListResult = Vec<{entity}>;\n    pub type DeleteResult = {entity};")
+            .replace("{list_query_fields}", "")
+            .replace("{model_derives}", ", HttpFindListDelete")
+            .replace("{new_derives}", ", HttpCreate")
+            .replace("{updatable_derives}", ", HttpUpdate")
+            .replace("{model_sqlx}", "")
+            .replace("{new_sqlx}", "")
+            .replace("{updatable_sqlx}", "")
     };
-    let (sqlx_derives, state, mut_self) = if sqlx {
-        (", sqlx::FromRow", "state", "")
-    } else {
-        ("", "_state", "mut ")
-    };
-    let (list_query_fields, list_query, list_limits) = if sqlx {
-        (LIST_QUERY_FIELDS, "query", LIST_LIMITS)
-    } else {
-        ("", "_query", "")
-    };
-    let [find_body, list_body, delete_body, save_body, update_body] = bodies;
-    MODEL_TPL
-        .replace("{find_body}", &find_body)
-        .replace("{list_body}", &list_body)
-        .replace("{delete_body}", &delete_body)
-        .replace("{save_body}", &save_body)
-        .replace("{update_body}", &update_body)
-        .replace("{sqlx_derives}", sqlx_derives)
-        .replace("{state}", state)
-        .replace("{mut_self}", mut_self)
-        .replace("{list_query_fields}", list_query_fields)
-        .replace("{list_query}", list_query)
-        .replace("{list_limits}", list_limits)
-        .replace("{model_fields}", &model_fields)
+    tpl.replace("{model_fields}", &model_fields)
         .replace("{updatable_fields}", &updatable_fields)
         .replace("{chrono_imports}", &chrono_imports)
         .replace("{new_fields}", new_fields)
@@ -710,11 +592,7 @@ fn render_model(name: &str, openapi: bool, sqlx: bool, timestamps: bool, fields:
         .replace("{entity_lower_case}", &name.to_lowercase())
 }
 
-const MODEL_TPL: &str = r#"
-    // The application state, declared (or re-exported) at the root of the crate
-    use crate::AppState;
-    use serde::{Serialize, Deserialize};
-    use actix_restful::{
+const TRAIT_IMPORTS: &str = "
         HttpCreate,
         HttpFindListDelete,
         HttpUpdate,
@@ -723,7 +601,53 @@ const MODEL_TPL: &str = r#"
         UpdatableModel,
         actix_restful_info,
         anyhow::Result,
-        async_trait,
+        async_trait,";
+
+const SQLX_TRAIT_IMPORTS: &str = "
+        HttpCreate,
+        HttpFindListDelete,
+        HttpUpdate,
+        SqlxModel,
+        SqlxNewModel,
+        SqlxUpdatableModel,
+        actix_restful_info,";
+
+const MODEL_IMPL: &str = r#"
+
+    #[async_trait]
+    impl Model<Id, FindQuery, ListQuery, ListResult, DeleteQuery, DeleteResult, AppState> for {entity} {
+        async fn find(id: Id, _query: &FindQuery, _state: &AppState) -> Result<Box<{entity}>> {
+{find_body}
+        }
+        async fn list(_query: &ListQuery, _state: &AppState) -> Result<ListResult> {
+{list_body}
+        }
+        async fn delete(mut self: Self, _query: &DeleteQuery, _state: &AppState) -> Result<DeleteResult> {
+{delete_body}
+        }
+    }"#;
+
+const NEW_IMPL: &str = r#"
+    #[async_trait]
+    impl NewModel<{entity}, SaveQuery, AppState> for New{entity} {
+        async fn save(self: Self, _query: &SaveQuery, _state: &AppState) -> Result<{entity}> {
+{save_body}
+        }
+    }"#;
+
+const UPDATABLE_IMPL: &str = r#"
+    #[async_trait]
+    impl UpdatableModel<Updatable{entity}, UpdateQuery, AppState> for Updatable{entity} {
+        async fn update(mut self: Self, _query: &UpdateQuery, _state: &AppState) -> Result<Updatable{entity}> {
+{update_body}
+        }
+    }"#;
+
+const MODEL_TPL: &str = r#"
+    // The application state, declared (or re-exported) at the root of the crate
+    use crate::AppState;
+    use serde::{Serialize, Deserialize};
+    use actix_restful::{{trait_imports}
     };{chrono_imports}{openapi_imports}
 
     #[derive(Default, Deserialize{openapi_derives})]
@@ -731,57 +655,30 @@ const MODEL_TPL: &str = r#"
     #[derive(Deserialize{openapi_derives})]
     pub struct ListQuery {{list_query_fields}}
     #[derive(Deserialize{openapi_derives})]
-    pub struct DeleteQuery {}
-    pub type ListResult = Vec<{entity}>;
-    pub type DeleteResult = {entity};
+    pub struct DeleteQuery {}{result_types}
     #[derive(Deserialize{openapi_derives})]
     pub struct SaveQuery {}
     #[derive(Deserialize{openapi_derives})]
     pub struct UpdateQuery {}
-    pub type Id = i64;{list_limits}
+    pub type Id = i64;
 
-    #[derive(Default, Serialize, Deserialize{openapi_derives}{sqlx_derives}, HttpFindListDelete)]
-    #[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]
+    #[derive(Default, Serialize, Deserialize{openapi_derives}{model_derives})]
+    #[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]{model_sqlx}
     #[actix_restful_info(path = "{entity_lower_case}")]
     pub struct {entity} {
         pub id: Id,{model_fields}
-    }
-    
-    #[async_trait]
-    impl Model<Id, FindQuery, ListQuery, ListResult, DeleteQuery, DeleteResult, AppState> for {entity} {
-        async fn find(id: Id, _query: &FindQuery, {state}: &AppState) -> Result<Box<{entity}>> {
-{find_body}
-        }
-        async fn list({list_query}: &ListQuery, {state}: &AppState) -> Result<ListResult> {
-{list_body}
-        }
-        async fn delete({mut_self}self: Self, _query: &DeleteQuery, {state}: &AppState) -> Result<DeleteResult> {
-{delete_body}
-        }
-    }
-    
-    #[derive(Serialize, Deserialize{openapi_derives}, HttpCreate)]
-    #[http_create(SaveQuery, AppState)]
+    }{model_impl}
+
+    #[derive(Serialize, Deserialize{openapi_derives}{new_derives})]
+    #[http_create(SaveQuery, AppState)]{new_sqlx}
     pub struct New{entity} {{new_fields}
-    }
-    #[async_trait]
-    impl NewModel<{entity}, SaveQuery, AppState> for New{entity} {
-        async fn save(self: Self, _query: &SaveQuery, {state}: &AppState) -> Result<{entity}> {
-{save_body}
-        }
-    }
-    
-    #[derive(Serialize, Deserialize{openapi_derives}{sqlx_derives}, HttpUpdate)]
-    #[http_update(Id, UpdateQuery, {entity}, FindQuery, AppState)]
+    }{new_impl}
+
+    #[derive(Serialize, Deserialize{openapi_derives}{updatable_derives})]
+    #[http_update(Id, UpdateQuery, {entity}, FindQuery, AppState)]{updatable_sqlx}
     pub struct Updatable{entity} {
         pub id: Id,{updatable_fields}
-    }
-    #[async_trait]
-    impl UpdatableModel<Updatable{entity}, UpdateQuery, AppState> for Updatable{entity} {
-        async fn update({mut_self}self: Self, _query: &UpdateQuery, {state}: &AppState) -> Result<Updatable{entity}> {
-{update_body}
-        }
-    }{openapi_configure}
+    }{updatable_impl}{openapi_configure}
     "#;
 
 // Plural of the last word of a snake_case name: `book` gives `books`, `category` gives `categories`
@@ -910,12 +807,11 @@ fn relation_sqlx_body(relation: &Relation, timestamps: bool, dialect: Dialect) -
             }}
             Ok(Some(models))",
         LIST_PAGINATION,
-        sqlx_query(
+        sqlx_fetch_all(
             "models",
             &relation.child,
             &select,
             &["id".to_string(), "limit".to_string(), "offset".to_string()],
-            Fetch::All
         ),
         lookup
     )
@@ -1021,8 +917,12 @@ fn main() -> Result<(), Error> {
     let opt = Opt::from_args();
 
     match opt {
-        Opt::GenerateModel { name, openapi, fields, sqlx, migration, sqlite: _, postgres, mysql, timestamps } => {
+        Opt::GenerateModel { name, openapi, fields, sqlx, migration, sqlite: _, postgres, mysql, timestamps, force } => {
             let dialect = Dialect::from_flags(postgres, mysql);
+            let module = to_snake_case(&name);
+            let path = format!("{}.rs", module);
+            let overwrites = Path::new(&path).exists();
+            refuse_overwrite(&path, force, &format!("model {}", name));
             let fields = if fields {
                 let strict = if migration { Some(dialect) } else { None };
                 read_fields(&mut io::stdin().lock(), &mut io::stdout(), timestamps, strict)?
@@ -1034,30 +934,28 @@ fn main() -> Result<(), Error> {
                 eprintln!("--sqlx needs at least one field, model {} not generated", name);
                 process::exit(1);
             }
-            let to_write = render_model(&name, openapi, sqlx, timestamps, &fields, dialect);
-            let module = to_snake_case(&name);
-            let path = format!("{}.rs", module);
-            let mut output = File::create(&path)?;
-            write!(output, "{}", to_write)?;
-            println!("Successfully generated model {}, declare it with `mod {};`", path, module);
-            if migration {
-                let secs = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
-                let dir = migrations_dir(&std::env::current_dir()?);
-                fs::create_dir_all(&dir)?;
-                let path = dir
-                    .join(format!("{}_create_{}.sql", migration_timestamp(secs), name.to_lowercase()))
-                    .display()
-                    .to_string();
-                let sql = render_migration(&name, &fields, timestamps, dialect).unwrap_or_else(|e| {
-                    eprintln!("{}, migration not generated", e);
+            let sql = if migration {
+                Some(render_migration(&name, &fields, timestamps, dialect).unwrap_or_else(|e| {
+                    eprintln!("{}, model {} not generated", e, name);
                     process::exit(1);
-                });
-                fs::write(&path, sql)?;
-                println!("Successfully generated migration {}", path);
+                }))
+            } else {
+                None
+            };
+            fs::write(&path, render_model(&name, openapi, sqlx, timestamps, &fields, dialect))?;
+            println!("Successfully generated model {}, declare it with `mod {};`", path, module);
+            if let Some(sql) = sql {
+                write_migration(&format!("create_{}", name.to_lowercase()), &sql)?;
+                if overwrites {
+                    println!(
+                        "The migration creates the {} table only if it does not exist yet",
+                        name.to_lowercase()
+                    );
+                }
             }
             Ok(())
         }
-        Opt::GenerateRelation { parent, child, name, foreign_key, through, child_key, openapi, sqlx, migration, sqlite: _, postgres, mysql, timestamps } => {
+        Opt::GenerateRelation { parent, child, name, foreign_key, through, child_key, openapi, sqlx, migration, sqlite: _, postgres, mysql, timestamps, force } => {
             let dialect = Dialect::from_flags(postgres, mysql);
             let relation = Relation::new(parent, child, name, foreign_key, through, child_key);
             let columns = [Some(&relation.name), Some(&relation.foreign_key), relation.through.as_ref().map(|t| &t.child_key)];
@@ -1067,22 +965,15 @@ fn main() -> Result<(), Error> {
             }
             let module = relation.module();
             let path = format!("{}.rs", module);
+            refuse_overwrite(&path, force, "relation");
             fs::write(&path, render_relation(&relation, openapi, sqlx, timestamps, dialect))?;
             println!(
                 "Successfully generated relation {}, declare it with `mod {};` and mount it with `.configure({}::configure)` in the scope of the {} routes",
                 path, module, module, relation.parent.to_lowercase()
             );
             if migration {
-                let secs = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
-                let dir = migrations_dir(&std::env::current_dir()?);
-                fs::create_dir_all(&dir)?;
                 let (table, column) = relation.foreign_key_column();
-                let path = dir
-                    .join(format!("{}_index_{}_{}.sql", migration_timestamp(secs), table, column))
-                    .display()
-                    .to_string();
-                fs::write(&path, render_relation_migration(&relation, dialect))?;
-                println!("Successfully generated migration {}", path);
+                write_migration(&format!("index_{}_{}", table, column), &render_relation_migration(&relation, dialect))?;
             }
             Ok(())
         }
@@ -1092,8 +983,8 @@ fn main() -> Result<(), Error> {
 #[cfg(test)]
 mod tests {
     use super::{
-        migration_timestamp, migrations_dir, parse_field_type, pluralize, read_fields, render_migration, render_model,
-        render_relation, render_relation_migration, to_camel_case, to_snake_case, Dialect, Field, Opt, Relation, Through,
+        migration_timestamp, migrations_dir, parse_field_type, pluralize, read_fields, render_migration, render_model, render_relation, render_relation_migration, to_camel_case,
+        to_snake_case, Dialect, Field, Opt, Relation, Through,
     };
     use structopt::StructOpt;
 
@@ -1227,24 +1118,21 @@ mod tests {
     }
 
     #[test]
-    fn sqlx_model_fills_every_function() {
+    fn sqlx_model_derives_the_model_traits() {
         let fields = vec![
             Field { name: "title".into(), ty: "String".into() },
             Field { name: "stars".into(), ty: "i32".into() },
         ];
         let model = render_model("Project", false, true, false, &fields, Dialect::Sqlite);
         assert!(!super::EMPTY_BODIES.iter().any(|body| model.contains(body)));
-        assert!(!model.contains("mut self"));
-        assert!(!model.contains("_state"));
-        assert!(model.contains("\"SELECT * FROM project WHERE id = $1\""));
-        assert!(model.contains("\"SELECT * FROM project ORDER BY id LIMIT $1 OFFSET $2\""));
-        assert!(model.contains("\"DELETE FROM project WHERE id = $1 RETURNING *\""));
-        assert!(model.contains("\"INSERT INTO project (title, stars) VALUES ($1, $2) RETURNING *\""));
-        assert!(model.contains("\"UPDATE project SET title = $1, stars = $2 WHERE id = $3 RETURNING id, title, stars\""));
-        assert!(model.contains("sqlx::query_as::<_, UpdatableProject>("));
-        assert!(model.contains(".bind(self.title)\n            .bind(self.stars)\n            .bind(self.id)"));
-        assert!(model.contains("Ok(Box::new(model))"));
-        assert_eq!(model.matches(", sqlx::FromRow").count(), 2);
+        assert!(!model.contains("impl "));
+        assert!(!model.contains("async_trait"));
+        assert!(!model.contains("SELECT"));
+        assert!(model.contains("        SqlxModel,\n        SqlxNewModel,\n        SqlxUpdatableModel,\n        actix_restful_info,\n    };"));
+        assert!(model.contains("#[derive(Default, Serialize, Deserialize, sqlx::FromRow, HttpFindListDelete, SqlxModel)]\n    #[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]\n    #[sqlx_model(database = \"sqlite\")]\n    #[actix_restful_info(path = \"project\")]"));
+        assert!(model.contains("#[derive(Serialize, Deserialize, HttpCreate, SqlxNewModel)]\n    #[http_create(SaveQuery, AppState)]\n    #[sqlx_model(database = \"sqlite\", model = \"Project\")]\n    pub struct NewProject {"));
+        assert!(model.contains("#[derive(Serialize, Deserialize, sqlx::FromRow, HttpUpdate, SqlxUpdatableModel)]\n    #[http_update(Id, UpdateQuery, Project, FindQuery, AppState)]\n    #[sqlx_model(database = \"sqlite\")]\n    pub struct UpdatableProject {"));
+        assert!(!model.contains("{model") && !model.contains("_sqlx}") && !model.contains("_impl}"));
     }
 
     #[test]
@@ -1253,18 +1141,29 @@ mod tests {
         let model = render_model("Project", false, true, false, &fields, Dialect::Sqlite);
         assert!(model.contains("pub struct ListQuery {\n        /// Number of rows to skip\n        pub offset: Option<usize>,"));
         assert!(model.contains("        pub limit: Option<usize>,\n    }"));
-        assert!(model.contains("const DEFAULT_LIMIT: i64 = 20;"));
-        assert!(model.contains("const MAX_LIMIT: i64 = 100;"));
-        assert!(model.contains("async fn list(query: &ListQuery, state: &AppState)"));
-        assert!(model.contains("let limit = query.limit.map_or(DEFAULT_LIMIT, |l| (l as i64).min(MAX_LIMIT));"));
-        assert!(model.contains("ORDER BY id LIMIT $1 OFFSET $2\",\n            )\n            .bind(limit)\n            .bind(offset)\n            .fetch_all(&state.pool)"));
-        let mysql = render_model("Project", false, true, false, &fields, Dialect::Mysql);
-        assert!(mysql.contains("\"SELECT * FROM project ORDER BY id LIMIT ? OFFSET ?\""));
         // without --sqlx the list query stays empty
         let model = render_model("Project", false, false, false, &fields, Dialect::Sqlite);
         assert!(model.contains("pub struct ListQuery {}"));
         assert!(model.contains("async fn list(_query: &ListQuery, _state: &AppState)"));
-        assert!(!model.contains("LIMIT"));
+    }
+
+    #[test]
+    fn sqlx_model_sets_timestamps_and_soft_deletes() {
+        let fields = vec![Field { name: "title".into(), ty: "String".into() }];
+        let model = render_model("Project", false, true, true, &fields, Dialect::Sqlite);
+        assert!(model.contains("use chrono::{DateTime, Utc};"));
+        assert_eq!(model.matches("#[sqlx_model(database = \"sqlite\", timestamps, soft_delete)]").count(), 2);
+        assert!(model.contains("#[sqlx_model(database = \"sqlite\", model = \"Project\", timestamps)]"));
+    }
+
+    #[test]
+    fn sqlx_model_targets_the_database() {
+        let fields = vec![Field { name: "title".into(), ty: "String".into() }];
+        let postgres = render_model("Project", false, true, false, &fields, Dialect::Postgres);
+        assert_eq!(postgres.matches("database = \"postgres\"").count(), 3);
+        let mysql = render_model("Project", true, true, false, &fields, Dialect::Mysql);
+        assert_eq!(mysql.matches("database = \"mysql\"").count(), 3);
+        assert!(mysql.contains("#[derive(Serialize, Deserialize, JsonSchema, ApiComponent, HttpCreate, SqlxNewModel)]"));
     }
 
     #[test]
@@ -1343,22 +1242,6 @@ mod tests {
         assert!(model.contains("pub struct NewProject {\n        pub title: String,\n    }"));
         assert!(model.contains("pub struct UpdatableProject {\n        pub id: Id,\n        pub title: String,\n        pub updated_at: Option<DateTime<Utc>>,\n    }"));
         assert!(!render_model("Project", false, false, false, &fields, Dialect::Sqlite).contains("chrono"));
-    }
-
-    #[test]
-    fn sqlx_model_sets_timestamps() {
-        let fields = vec![Field { name: "title".into(), ty: "String".into() }];
-        let model = render_model("Project", false, true, true, &fields, Dialect::Sqlite);
-        assert!(model.contains("let now = Utc::now();\n            let model = sqlx::query_as::<_, Project>("));
-        assert!(model.contains("\"INSERT INTO project (title, created_at, updated_at) VALUES ($1, $2, $3) RETURNING *\""));
-        assert!(model.contains(".bind(self.title)\n            .bind(now)\n            .bind(now)"));
-        assert!(model.contains("\"UPDATE project SET title = $1, updated_at = $2 WHERE id = $3 AND deleted_at IS NULL RETURNING id, title, updated_at\""));
-        assert!(model.contains(".bind(self.title)\n            .bind(Utc::now())\n            .bind(self.id)"));
-        // soft delete, the deleted rows are skipped
-        assert!(model.contains("let now = Utc::now();\n            let model = sqlx::query_as::<_, Project>(\n                \"UPDATE project SET deleted_at = $1 WHERE id = $2 AND deleted_at IS NULL RETURNING *\",\n            )\n            .bind(now)\n            .bind(self.id)"));
-        assert!(!model.contains("DELETE FROM"));
-        assert!(model.contains("\"SELECT * FROM project WHERE id = $1 AND deleted_at IS NULL\""));
-        assert!(model.contains("\"SELECT * FROM project WHERE deleted_at IS NULL ORDER BY id LIMIT $1 OFFSET $2\""));
     }
 
     #[test]
@@ -1508,35 +1391,6 @@ mod tests {
         assert!(String::from_utf8(output).unwrap().contains("`u32` has no PostgreSQL column type, use one of String, i16"));
     }
 
-    #[test]
-    fn postgres_queries_use_returning() {
-        let fields = vec![Field { name: "title".into(), ty: "String".into() }];
-        let model = render_model("Project", false, true, false, &fields, Dialect::Postgres);
-        assert!(model.contains("\"INSERT INTO project (title) VALUES ($1) RETURNING *\""));
-        assert!(model.contains("\"UPDATE project SET title = $1 WHERE id = $2 RETURNING id, title\""));
-        assert!(model.contains("\"DELETE FROM project WHERE id = $1 RETURNING *\""));
-    }
-
-    #[test]
-    fn mysql_queries_select_the_row_without_returning() {
-        let fields = vec![
-            Field { name: "title".into(), ty: "String".into() },
-            Field { name: "stars".into(), ty: "i32".into() },
-        ];
-        let model = render_model("Project", false, true, true, &fields, Dialect::Mysql);
-        assert!(!model.contains("RETURNING"));
-        assert!(!model.contains('$'));
-        assert!(model.contains("\"SELECT * FROM project WHERE id = ? AND deleted_at IS NULL\",\n            )\n            .bind(id)"));
-        // save inserts then selects the inserted row
-        assert!(model.contains("let now = Utc::now();\n            let result = sqlx::query(\n                \"INSERT INTO project (title, stars, created_at, updated_at) VALUES (?, ?, ?, ?)\","));
-        assert!(model.contains(".execute(&state.pool)\n            .await?;\n            let model = sqlx::query_as::<_, Project>(\n                \"SELECT * FROM project WHERE id = ?\",\n            )\n            .bind(result.last_insert_id() as Id)"));
-        // delete selects the row before soft deleting it
-        assert!(model.contains("let now = Utc::now();\n            let mut model = sqlx::query_as::<_, Project>(\n                \"SELECT * FROM project WHERE id = ? AND deleted_at IS NULL\","));
-        assert!(model.contains(".bind(self.id)\n            .fetch_one(&state.pool)\n            .await?;\n            sqlx::query(\n                \"UPDATE project SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL\",\n            )\n            .bind(now)\n            .bind(self.id)\n            .execute(&state.pool)\n            .await?;\n            model.deleted_at = Some(now);\n            Ok(model)"));
-        assert!(model.contains("\"UPDATE project SET title = ?, stars = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL\""));
-        assert!(model.contains("sqlx::query_as::<_, UpdatableProject>(\n                \"SELECT id, title, stars, updated_at FROM project WHERE id = ? AND deleted_at IS NULL\","));
-    }
-
     fn relation(parent: &str, child: &str, through: Option<&str>) -> Relation {
         Relation::new(parent.into(), child.into(), None, None, through.map(String::from), None)
     }
@@ -1628,5 +1482,11 @@ mod tests {
         assert!(parse(&["--child-key", "cat_id"]).is_err());
         assert!(parse(&["--through", "ProjectCategory", "--child-key", "cat_id"]).is_ok());
         assert!(parse(&["--postgres", "--mysql"]).is_err());
+    }
+
+    #[test]
+    fn force_is_accepted_by_the_generators() {
+        assert!(Opt::from_iter_safe(&["actix-restful", "generate-model", "--name", "Project", "--force"]).is_ok());
+        assert!(Opt::from_iter_safe(&["actix-restful", "generate-relation", "--parent", "Project", "--child", "Book", "--force"]).is_ok());
     }
 }
