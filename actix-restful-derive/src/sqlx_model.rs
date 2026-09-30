@@ -58,6 +58,9 @@ struct SqlxModelArgs {
     /// delete sets `deleted_at`, and find, list and update skip the deleted rows
     #[darling(default)]
     soft_delete: bool,
+    /// `save` and `update` pass the payload through `BeforeSave::before_save` first
+    #[darling(default)]
+    before_save: bool,
     #[darling(default)]
     default_limit: Option<i64>,
     #[darling(default)]
@@ -74,6 +77,7 @@ struct Config {
     pool: syn::Ident,
     timestamps: bool,
     soft_delete: bool,
+    before_save: bool,
     model: Option<syn::Path>,
     default_limit: i64,
     max_limit: i64,
@@ -111,6 +115,7 @@ fn parse_config(ast: &syn::DeriveInput, derive: &str, default_table: impl FnOnce
         pool,
         timestamps: args.timestamps,
         soft_delete: args.soft_delete,
+        before_save: args.before_save,
         model: args.model,
         default_limit: args.default_limit.unwrap_or(DEFAULT_LIMIT),
         max_limit: args.max_limit.unwrap_or(MAX_LIMIT),
@@ -146,6 +151,15 @@ fn not_deleted(config: &Config) -> &'static str {
 
 fn now() -> TokenStream {
     quote! { ::actix_restful::__private::chrono::Utc::now() }
+}
+
+// Binds `this`, the payload, transformed by `BeforeSave` with the `before_save` option
+fn this(config: &Config, app_state: &syn::Ident) -> TokenStream {
+    if config.before_save {
+        quote! { let this = <Self as ::actix_restful::BeforeSave<#app_state>>::before_save(self, state).await?; }
+    } else {
+        quote! { let this = self; }
+    }
 }
 
 pub fn impl_sqlx_model(ast: &syn::DeriveInput) -> syn::Result<TokenStream> {
@@ -267,7 +281,7 @@ pub fn impl_sqlx_new_model(ast: &syn::DeriveInput) -> syn::Result<TokenStream> {
     let (table, pool) = (&config.table, &config.pool);
 
     let mut columns: Vec<String> = fields.iter().map(|f| column(f)).collect();
-    let mut binds: Vec<TokenStream> = fields.iter().map(|f| quote! { .bind(&self.#f) }).collect();
+    let mut binds: Vec<TokenStream> = fields.iter().map(|f| quote! { .bind(&this.#f) }).collect();
     // created_at and updated_at get the same value
     if config.timestamps {
         columns.extend(["created_at".to_string(), "updated_at".to_string()]);
@@ -314,10 +328,12 @@ pub fn impl_sqlx_new_model(ast: &syn::DeriveInput) -> syn::Result<TokenStream> {
                 .await?;
         }
     };
+    let this = this(&config, &app_state);
     Ok(quote! {
         #[::actix_restful::__private::async_trait]
         impl ::actix_restful::NewModel<#model, #save_query, #app_state> for #name {
             async fn save(self: Self, _query: &#save_query, state: &#app_state) -> ::actix_restful::anyhow::Result<#model> {
+                #this
                 #now
                 #body
                 Ok(model)
@@ -342,7 +358,7 @@ pub fn impl_sqlx_updatable_model(ast: &syn::DeriveInput) -> syn::Result<TokenStr
         .filter(|f| **f != "id" && !(config.timestamps && TIMESTAMP_COLUMNS.contains(&column(f).as_str())))
         .collect();
     let mut columns: Vec<String> = set.iter().map(|f| column(f)).collect();
-    let mut binds: Vec<TokenStream> = set.iter().map(|f| quote! { .bind(&self.#f) }).collect();
+    let mut binds: Vec<TokenStream> = set.iter().map(|f| quote! { .bind(&this.#f) }).collect();
     if config.timestamps {
         columns.push("updated_at".to_string());
         let now = now();
@@ -368,7 +384,7 @@ pub fn impl_sqlx_updatable_model(ast: &syn::DeriveInput) -> syn::Result<TokenStr
         quote! {
             let model = ::actix_restful::__private::sqlx::query_as::<_, #name>(#sql)
                 #(#binds)*
-                .bind(&self.id)
+                .bind(&this.id)
                 .fetch_one(&state.#pool)
                 .await?;
         }
@@ -377,19 +393,21 @@ pub fn impl_sqlx_updatable_model(ast: &syn::DeriveInput) -> syn::Result<TokenStr
         quote! {
             ::actix_restful::__private::sqlx::query(#update)
                 #(#binds)*
-                .bind(&self.id)
+                .bind(&this.id)
                 .execute(&state.#pool)
                 .await?;
             let model = ::actix_restful::__private::sqlx::query_as::<_, #name>(#select)
-                .bind(&self.id)
+                .bind(&this.id)
                 .fetch_one(&state.#pool)
                 .await?;
         }
     };
+    let this = this(&config, &app_state);
     Ok(quote! {
         #[::actix_restful::__private::async_trait]
         impl ::actix_restful::UpdatableModel<#name, #update_query, #app_state> for #name {
             async fn update(self: Self, _query: &#update_query, state: &#app_state) -> ::actix_restful::anyhow::Result<#name> {
+                #this
                 #body
                 Ok(model)
             }
@@ -517,6 +535,28 @@ mod tests {
             "{}",
             out
         );
+    }
+
+    #[test]
+    fn before_save_transforms_the_payload_first() {
+        let new = expand(impl_sqlx_new_model, syn::parse_quote! {
+            #[http_create(SaveQuery, AppState)]
+            #[sqlx_model(database = "postgres", model = "User", before_save)]
+            struct NewUser { password: String }
+        });
+        assert!(new.contains("let this = < Self as :: actix_restful :: BeforeSave < AppState >> :: before_save (self , state) . await ?"), "{}", new);
+        let updatable = expand(impl_sqlx_updatable_model, syn::parse_quote! {
+            #[http_update(Id, UpdateQuery, User, FindQuery, AppState)]
+            #[sqlx_model(database = "postgres", before_save)]
+            struct UpdatableUser { id: Id, password: String }
+        });
+        assert!(updatable.contains(":: before_save (self , state)"), "{}", updatable);
+        let without = expand(impl_sqlx_new_model, syn::parse_quote! {
+            #[http_create(SaveQuery, AppState)]
+            #[sqlx_model(database = "postgres", model = "User")]
+            struct NewUser { password: String }
+        });
+        assert!(!without.contains("BeforeSave"), "{}", without);
     }
 
     #[test]

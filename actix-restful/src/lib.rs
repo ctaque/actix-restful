@@ -286,6 +286,35 @@ pub trait UpdatableModel<T, Q, AppState> {
     async fn update(self: Self, query: &Q, state: &AppState) -> Result<T>;
 }
 
+/// A transformation of the payload before it is written, called by the `save` of `SqlxNewModel`
+/// and the `update` of `SqlxUpdatableModel` when the struct has the `before_save` option
+/// of `#[sqlx_model(...)]`. An error aborts the query and answers 500.
+///
+/// ```ignore
+///
+/// use actix_restful::{BeforeSave, anyhow::Result, async_trait};
+///
+/// #[derive(HttpCreate, SqlxNewModel)]
+/// #[http_create(SaveQuery, AppState)]
+/// #[sqlx_model(database = "postgres", model = "User", before_save)]
+/// struct NewUser {
+///     email: String,
+///     password: String,
+/// }
+///
+/// #[async_trait]
+/// impl BeforeSave<AppState> for NewUser {
+///     async fn before_save(mut self: Self, _state: &AppState) -> Result<Self> {
+///         self.password = hash(&self.password)?;
+///         Ok(self)
+///     }
+/// }
+/// ```
+#[async_trait]
+pub trait BeforeSave<AppState>: Sized {
+    async fn before_save(self: Self, state: &AppState) -> Result<Self>;
+}
+
 /// A has-many relation of a model, served on `GET /{path}/{id}/{RELATION}` by
 /// `gen_relation_endpoint!`, `{path}` being the path of the parent model.
 ///

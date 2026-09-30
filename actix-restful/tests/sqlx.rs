@@ -2,7 +2,7 @@
 //! on an in-memory SQLite database.
 
 use actix_restful::{
-    actix_restful_info, gen_endpoint, HttpCreate, HttpFindListDelete, HttpUpdate, SqlxModel, SqlxNewModel,
+    actix_restful_info, anyhow, async_trait, gen_endpoint, BeforeSave, HttpCreate, HttpFindListDelete, HttpUpdate, SqlxModel, SqlxNewModel,
     SqlxUpdatableModel,
 };
 use actix_web::{http::StatusCode, test, web, App};
@@ -95,6 +95,58 @@ mod tag {
     }
 }
 
+// `before_save`: the label is trimmed and uppercased before the insert and the update
+mod label {
+    use super::*;
+
+    #[derive(Default, Serialize, Deserialize, sqlx::FromRow, HttpFindListDelete, SqlxModel)]
+    #[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]
+    #[sqlx_model(database = "sqlite", pool = "db")]
+    #[actix_restful_info(path = "label")]
+    pub struct Label {
+        pub id: Id,
+        pub name: String,
+    }
+
+    #[derive(Serialize, Deserialize, HttpCreate, SqlxNewModel)]
+    #[http_create(SaveQuery, AppState)]
+    #[sqlx_model(database = "sqlite", model = "Label", pool = "db", before_save)]
+    pub struct NewLabel {
+        pub name: String,
+    }
+
+    #[derive(Serialize, Deserialize, sqlx::FromRow, HttpUpdate, SqlxUpdatableModel)]
+    #[http_update(Id, UpdateQuery, Label, FindQuery, AppState)]
+    #[sqlx_model(database = "sqlite", pool = "db", before_save)]
+    pub struct UpdatableLabel {
+        pub id: Id,
+        pub name: String,
+    }
+
+    fn normalize(name: &str) -> anyhow::Result<String> {
+        let name = name.trim();
+        anyhow::ensure!(!name.is_empty(), "EMPTY_NAME");
+        Ok(name.to_uppercase())
+    }
+
+    #[async_trait]
+    impl BeforeSave<AppState> for NewLabel {
+        async fn before_save(mut self: Self, _state: &AppState) -> anyhow::Result<Self> {
+            self.name = normalize(&self.name)?;
+            Ok(self)
+        }
+    }
+
+    #[async_trait]
+    impl BeforeSave<AppState> for UpdatableLabel {
+        async fn before_save(mut self: Self, _state: &AppState) -> anyhow::Result<Self> {
+            self.name = normalize(&self.name)?;
+            Ok(self)
+        }
+    }
+}
+
+use label::{Label, NewLabel, UpdatableLabel};
 use project::{NewProject, Project, UpdatableProject};
 use tag::{NewTag, Tag, UpdatableTag};
 
@@ -110,7 +162,8 @@ async fn state() -> web::Data<AppState> {
             updated_at DATETIME,
             deleted_at DATETIME
         );
-        CREATE TABLE tags (id INTEGER PRIMARY KEY AUTOINCREMENT, label TEXT NOT NULL);",
+        CREATE TABLE tags (id INTEGER PRIMARY KEY AUTOINCREMENT, label TEXT NOT NULL);
+        CREATE TABLE label (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL);",
     )
     .execute(&db)
     .await
@@ -124,7 +177,8 @@ macro_rules! app {
             App::new()
                 .app_data($state.clone())
                 .configure(gen_endpoint!(Project, NewProject, UpdatableProject))
-                .configure(gen_endpoint!(Tag, NewTag, UpdatableTag)),
+                .configure(gen_endpoint!(Tag, NewTag, UpdatableTag))
+                .configure(gen_endpoint!(Label, NewLabel, UpdatableLabel)),
         )
         .await
     };
@@ -204,6 +258,27 @@ async fn hard_deletes_without_soft_delete() {
     assert_eq!(deleted, json!({ "id": 1, "label": "y" }));
     let rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tags").fetch_one(&state.db).await.unwrap();
     assert_eq!(rows, 0);
+}
+
+#[actix_web::test]
+async fn before_save_transforms_the_payload() {
+    let state = state().await;
+    let app = app!(state);
+
+    let req = test::TestRequest::post().uri("/label").set_json(json!({ "name": "  urgent " })).to_request();
+    let created: Value = test::call_and_read_body_json(&app, req).await;
+    assert_eq!(created, json!({ "id": 1, "name": "URGENT" }));
+
+    let req = test::TestRequest::put().uri("/label/1").set_json(json!({ "id": 1, "name": "later" })).to_request();
+    let updated: Value = test::call_and_read_body_json(&app, req).await;
+    assert_eq!(updated, json!({ "id": 1, "name": "LATER" }));
+
+    // an error of the hook aborts the query
+    let req = test::TestRequest::post().uri("/label").set_json(json!({ "name": " " })).to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    let rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM label").fetch_one(&state.db).await.unwrap();
+    assert_eq!(rows, 1);
 }
 
 // The PostgreSQL and MySQL queries are only type checked: they differ from the SQLite ones

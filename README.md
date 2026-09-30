@@ -254,6 +254,31 @@ pub struct UpdatableProject {
 | `timestamps` | `save` sets `created_at` and `updated_at` to `Utc::now()`, `update` refreshes `updated_at`, and the payload does not set them |
 | `soft_delete` | `delete` sets `deleted_at` instead of removing the row, and `find`, `list` and `update` skip the rows whose `deleted_at` is set |
 | `default_limit`, `max_limit` | the page size of `list` without `limit`, and its maximum |
+| `before_save` | on `SqlxNewModel` and `SqlxUpdatableModel`: `save` and `update` first pass the payload through your `BeforeSave` implementation, see below |
+
+With `before_save`, the struct implements `BeforeSave`, which transforms the payload before it is written, e.g. to hash a password. It is async and receives the application state; an error aborts the query and answers 500:
+
+``` rust
+use actix_restful::{BeforeSave, anyhow::Result, async_trait};
+
+#[derive(Serialize, Deserialize, HttpCreate, SqlxNewModel)]
+#[http_create(SaveQuery, AppState)]
+#[sqlx_model(database = "postgres", model = "User", before_save)]
+pub struct NewUser {
+    pub email: String,
+    pub password: String,
+}
+
+#[async_trait]
+impl BeforeSave<AppState> for NewUser {
+    async fn before_save(mut self: Self, _state: &AppState) -> Result<Self> {
+        let password = std::mem::take(&mut self.password);
+        // CPU-bound hashing runs off the actix workers
+        self.password = actix_web::rt::task::spawn_blocking(move || hash(&password)).await??;
+        Ok(self)
+    }
+}
+```
 
 Your application depends on sqlx itself, for `sqlx::FromRow` and the pool, with the driver of its database and a runtime.
 
