@@ -6,6 +6,16 @@
 
 This project aims to simplify code generation for faster implementation of Json CRUD operations with Actix.
 
+### Table of contents
+
+- [Quick start](#quick-start)
+  - [OpenAPI documentation with apistos](#openapi-documentation-with-apistos)
+  - [Has-many relations](#has-many-relations)
+  - [sqlx models](#sqlx-models)
+  - [actix-restful-cli](#actix-restful-cli)
+- [CLI: generate-relation](#cli-generate-relation)
+  - [Examples](#examples-)
+
 ### Quick start
 
 Create the project and add the dependencies
