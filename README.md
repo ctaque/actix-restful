@@ -200,7 +200,7 @@ A relation lists the children of a model on `GET /{path}/{id}/{relation}`, e.g. 
 
 ``` bash
 
-actix-restful generate-relation --parent Project --child Book --foreign-key=project_id --sqlx --openapi --migration
+actix-restful generate-relation --parent Project --child Book --foreign-key=project_id --sqlx --openapi --migration --postgres
 
 ```
 
@@ -208,7 +208,7 @@ The route segment is the plural of the child (`books`), `--name` changes it. The
 
 ``` bash
 
-actix-restful generate-relation --parent Project --child Category --through ProjectCategory --sqlx --openapi --migration
+actix-restful generate-relation --parent Project --child Category --through ProjectCategory --sqlx --openapi --migration --postgres
 
 ```
 
