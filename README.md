@@ -187,14 +187,6 @@ impl HasMany for ProjectBooks {
 }
 ```
 
-`gen_relation_endpoint!(ProjectBooks)` generates the route, `gen_documented_relation_endpoint!(ProjectBooks)` its documented version (operation `list_project_books`, tagged `project`). Register it in the same scope as the parent routes:
-
-``` rust
-apistos::web::scope("v1")
-    .configure(gen_documented_endpoint!(Project, NewProject, UpdatableProject))
-    .configure(gen_documented_relation_endpoint!(ProjectBooks))
-```
-
 `list_related` answers `200` with its result, `404 ENTITY_NOT_FOUND` with `None`, and `500` with the error message.
 
 #### sqlx models
