@@ -8,12 +8,12 @@ This project aims to simplify code generation for faster implementation of Json 
 
 ### Table of contents
 
-- [Quick start](#quick-start)
+  - [Quick start](#quick-start)
   - [OpenAPI documentation with apistos](#openapi-documentation-with-apistos)
   - [Has-many relations](#has-many-relations)
   - [sqlx models](#sqlx-models)
-  - [actix-restful-cli](#actix-restful-cli)
-- [CLI: generate-relation](#cli-generate-relation)
+  - [CLI](#actix-restful-cli)
+  - [CLI: generate-relation](#cli-generate-relation)
   - [Examples](#examples-)
 
 ### Quick start
@@ -122,7 +122,7 @@ The function `project::configure` will generate 5 routes :
 
 Note: If the updatable struct has an `id` field, `PUT /v1/project/{id}` answers `400 ID_MISMATCH` when the payload `id` differs from the path `{id}`.
 
-#### OpenAPI documentation with apistos
+### OpenAPI documentation with apistos
 
 ``` toml
 [dependencies]
@@ -177,7 +177,7 @@ async fn main() -> std::io::Result<()>{
 
 apistos parses route paths with a regex syntax introduced in `regex` 1.9, but accepts older versions: if the app panics with `path name regex`, run `cargo update -p regex`.
 
-#### Has-many relations
+### Has-many relations
 
 A relation lists the children of a model on `GET /{path}/{id}/{relation}`, e.g. the books of a project on `GET /v1/project/{id}/books`, paginated by its query rather than embedded in the parent. The `HasMany` trait is implemented on a type standing for the relation, so a model can have several relations, even towards the same child model:
 
@@ -288,7 +288,7 @@ impl BeforeSave<AppState> for NewUser {
 
 Your application depends on sqlx itself, for `sqlx::FromRow` and the pool, with the driver of its database and a runtime.
 
-#### actix-restful-cli
+### actix-restful-cli
 
 Alternatively, if you want to avoid writing a lot of boilerplate code, you can use the model generator :
 
