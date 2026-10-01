@@ -141,7 +141,7 @@ pub mod openapi;
 pub use octopux_derive::{octopux_info, HttpCreate, HttpFindListDelete, HttpUpdate};
 // Implement `Model`, `NewModel` and `UpdatableModel` with sqlx queries, see the README
 #[cfg(feature = "sqlx")]
-pub use octopux_derive::{SqlxModel, SqlxNewModel, SqlxUpdatableModel};
+pub use octopux_derive::{SqlxFilter, SqlxModel, SqlxNewModel, SqlxUpdatableModel};
 
 // The traits are declared with `async_trait` and return `anyhow::Result`: their implementations
 // need both, re-exported so that they do not have to be dependencies of the application.
@@ -161,6 +161,41 @@ pub mod __private {
     pub use chrono;
     #[cfg(feature = "sqlx")]
     pub use sqlx;
+
+    // `ORDER BY` clause of the `sort` value of a list query, called by the `SqlxFilter` derive;
+    // `direction`, `asc` or `desc`, orders the columns that are not prefixed with `-`
+    #[cfg(feature = "sqlx")]
+    pub fn push_order_by<DB: sqlx::Database>(
+        qb: &mut sqlx::QueryBuilder<DB>,
+        sort: Option<&str>,
+        direction: Option<&str>,
+        columns: &[&str],
+    ) -> anyhow::Result<bool> {
+        let default = match direction {
+            None => "ASC",
+            Some(d) if d.eq_ignore_ascii_case("asc") => "ASC",
+            Some(d) if d.eq_ignore_ascii_case("desc") => "DESC",
+            Some(d) => anyhow::bail!("invalid sort direction `{}`, use asc or desc", d),
+        };
+        let Some(sort) = sort else { return Ok(false) };
+        let mut terms: Vec<(&str, &str)> = Vec::new();
+        for term in sort.split(',').map(str::trim) {
+            let (column, direction) = match term.strip_prefix('-') {
+                Some(column) => (column, "DESC"),
+                None => (term, default),
+            };
+            if !columns.contains(&column) {
+                anyhow::bail!("invalid sort column `{}`, use {}", column, columns.join(", "));
+            }
+            if terms.iter().any(|(c, _)| *c == column) {
+                anyhow::bail!("the sort column `{}` is repeated", column);
+            }
+            terms.push((column, direction));
+        }
+        let terms: Vec<String> = terms.iter().map(|(c, d)| format!("{} {}", c, d)).collect();
+        qb.push(" ORDER BY ").push(terms.join(", "));
+        Ok(true)
+    }
 
     use crate::{HasMany, RestfulPathInfo};
     use actix_web::{web, HttpResponse};
@@ -313,6 +348,52 @@ pub trait UpdatableModel<T, Q, AppState> {
 #[async_trait]
 pub trait BeforeSave<AppState>: Sized {
     async fn before_save(self: Self, state: &AppState) -> Result<Self>;
+}
+
+/// The filters of a list query, pushed as the conditions of a `WHERE` clause.
+/// The `SqlxFilter` derive implements it with a condition on a column for each `Option` field
+/// that is set, the column and the operator being read from the field name
+/// (`name` filters `name = ...`, `price_gte` filters `price >= ...`; the suffixes are
+/// `_ne`, `_gt`, `_gte`, `_lt`, `_lte` and `_like`) or from `#[sqlx_filter(column = "...", op = "...")]`.
+/// `offset` and `limit` are left to the pagination, `#[sqlx_filter(skip)]` leaves out another field.
+///
+/// The `Option<String>` field marked `#[sqlx_filter(sort = "...")]` orders the rows, by the columns
+/// it lists separated by commas, a column prefixed with `-` in descending order (`?sort=-price,name`).
+/// Only the columns of the attribute are accepted. The `Option<String>` field marked
+/// `#[sqlx_filter(sort_direction)]`, `asc` or `desc`, orders the columns not prefixed with `-`
+/// (`?sort=price,name&order=desc`), in ascending order without it.
+///
+/// ```ignore
+///
+/// use octopux::SqlxFilter;
+///
+/// #[derive(Deserialize, SqlxFilter)]
+/// #[sqlx_filter(database = "postgres")]
+/// struct ListQuery {
+///     offset: Option<usize>,
+///     limit: Option<usize>,
+///     name: Option<String>,      // name = $1
+///     price_gte: Option<i32>,    // price >= $2
+///     #[sqlx_filter(column = "name", op = "like")]
+///     q: Option<String>,         // name LIKE $3
+///     #[sqlx_filter(sort = "name, price")]
+///     sort: Option<String>,      // ORDER BY price DESC, name
+///     #[sqlx_filter(sort_direction)]
+///     order: Option<String>,     // asc or desc
+/// }
+/// ```
+#[cfg(feature = "sqlx")]
+pub trait SqlxFilter<DB: sqlx::Database> {
+    /// Pushes ` WHERE ` before the first condition, unless `has_where` tells that the query
+    /// has one already, and ` AND ` before the others; `has_where` is then set when a condition was pushed
+    fn push_filters(&self, qb: &mut sqlx::QueryBuilder<DB>, has_where: &mut bool);
+
+    /// Pushes the ` ORDER BY ` clause of the sort field when it is set, and tells whether it did,
+    /// so that the caller can order by default otherwise. A column not allowed by the sort field
+    /// is an error, the query being left untouched
+    fn push_order_by(&self, _qb: &mut sqlx::QueryBuilder<DB>) -> Result<bool> {
+        Ok(false)
+    }
 }
 
 /// A has-many relation of a model, served on `GET /{path}/{id}/{RELATION}` by
