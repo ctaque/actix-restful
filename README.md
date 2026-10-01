@@ -337,16 +337,6 @@ The CLI asks for the name and type of each field. The type is picked by its numb
 
 ```
 $ octopux generate-model --name Project --fields
-Enter the model fields (empty name to finish), `id: Id` is already declared
-Wrap a type in `Option<T>` (e.g. `Option<i32>`) to make the field optional, its column is then nullable
-Field name: title
-  1) String  2) i32  3) i64  4) f64  5) bool  6) Option<String>  7) DateTime<Utc>  8) NaiveDateTime  9) NaiveDate  10) NaiveTime  11) Vec<u8>
-Type of `title` (number or custom type) [String]:
-Field name: stars
-  1) String  2) i32  3) i64  4) f64  5) bool  6) Option<String>  7) DateTime<Utc>  8) NaiveDateTime  9) NaiveDate  10) NaiveTime  11) Vec<u8>
-Type of `stars` (number or custom type) [String]: 2
-Field name:
-Successfully generated model project.rs, declare it with `mod project;`
 ```
 
 #### `--sqlx`
