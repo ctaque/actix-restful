@@ -133,8 +133,9 @@ async fn main() -> std::io::Result<()> {
             // Actix does not fall through between scopes sharing a prefix,
             // so resources living under the same scope must be registered together
             .service(
-                apistos::web::scope("v1")
-                    .configure(project::configure), // Where the magic operates
+                apistos::web::scope("v1"), // Where the magic operates
+                // Mount your models here with `.configure(<model_name>::configure)`
+                // after declaring them with `mod <model_name>;`
             )
             .app_data(state.clone())
             .build_with(
@@ -994,7 +995,7 @@ fn bootstrap<R: BufRead, W: Write>(root: &Path, input: &mut R, output: &mut W) -
         fs::write(src.join(name), content)?;
     }
     println!(
-        "Successfully bootstrapped src/main.rs and src/helpers.rs, generate the project model it mounts with `octopux generate-model --name Project --openapi` in src, then declare it with `mod project;` in src/main.rs"
+        "Successfully bootstrapped src/main.rs and src/helpers.rs, generate a model with `octopux generate-model --name <Model> --openapi` in src, then declare it with `mod <model>;` and mount it with `.configure(<model>::configure)` in the v1 scope of src/main.rs"
     );
     Ok(())
 }
@@ -1653,7 +1654,8 @@ mod tests {
         let helpers = std::fs::read_to_string(root.join("src/helpers.rs")).unwrap();
         assert!(main.starts_with("mod helpers;\nuse "));
         assert!(!main.contains("mod project;"));
-        assert!(main.contains(".configure(project::configure)"));
+        assert!(main.contains("apistos::web::scope(\"v1\"),"));
+        assert!(!main.contains(".configure(project::configure)"));
         assert!(helpers.contains("pub pool: SqlitePool,"));
         std::fs::remove_dir_all(&root).unwrap();
     }
