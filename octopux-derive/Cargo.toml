@@ -6,6 +6,9 @@ description = "Derive and procedural macros for octopux"
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+readme.workspace = true
+keywords = ["actix", "crud", "rest", "derive", "macro"]
+categories = ["web-programming::http-server", "development-tools::procedural-macro-helpers"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

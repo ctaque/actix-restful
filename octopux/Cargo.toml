@@ -6,6 +6,9 @@ description = "Generate JSON REST APIs for Actix with minimal boilerplate"
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+readme.workspace = true
+keywords = ["actix", "crud", "rest", "api", "openapi"]
+categories = ["web-programming::http-server", "database"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

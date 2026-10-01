@@ -15,6 +15,7 @@ edition = "2021"
 license = "MIT"
 repository = "https://github.com/ctaque/octopux"
 authors = ["Cyprien Taque"]
+readme = "README.md"
 
 [profile.release.build-override]
 strip = false
