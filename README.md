@@ -35,7 +35,7 @@ Generate JSON CRUD endpoints for [Actix Web](https://actix.rs) from your structs
 ### The library
 
 ```bash
-cargo add --git https://github.com/ctaque/octopux --tag v0.9.0 octopux
+cargo add --git https://github.com/ctaque/octopux --tag v0.17.3 octopux
 cargo add actix-web
 cargo add serde --features derive
 ```
@@ -50,7 +50,7 @@ Optional features:
 | `openapi` | The documented routes (see [OpenAPI documentation](#openapi-documentation-with-apistos)) | `cargo add apistos --features chrono,swagger-ui`<br>`cargo add schemars --rename schemars --package apistos-schemars` |
 
 ```bash
-cargo add --git https://github.com/ctaque/octopux --tag v0.9.0 octopux --features openapi,sqlx
+cargo add --git https://github.com/ctaque/octopux --tag v0.17.3 octopux --features openapi,sqlx
 ```
 
 Add `chrono` (`cargo add chrono --features serde`) when your models have date fields or use `--timestamps`.
@@ -60,7 +60,7 @@ Add `chrono` (`cargo add chrono --features serde`) when your models have date fi
 Once per machine:
 
 ```bash
-cargo install --git https://github.com/ctaque/octopux --tag v0.9.0 octopux-cli   # installs the `octopux` binary
+cargo install --git https://github.com/ctaque/octopux --tag v0.17.3 octopux-cli   # installs the `octopux` binary
 cargo install sqlx-cli                                                                        # optional, for `sqlx migrate run`
 ```
 
