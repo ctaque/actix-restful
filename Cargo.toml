@@ -30,7 +30,7 @@ apistos = "0.9"
 anyhow = "1.0.51"
 async-trait = "0.1.52"
 chrono = { version = "0.4.19", features = ["serde"] }
-darling = "0.13.1"
+darling = "0.20.11"
 schemars = { package = "apistos-schemars", version = "0.8" }
 proc-macro2 = "1.0.34"
 quote = "1.0.10"
