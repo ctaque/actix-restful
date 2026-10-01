@@ -122,14 +122,27 @@ fn parse_config(ast: &syn::DeriveInput, derive: &str, default_table: impl FnOnce
     })
 }
 
-// Field identifiers of a struct with named fields
+// Field identifiers of a struct with named fields, their columns are checked with `is_column_name`
 fn named_fields<'a>(ast: &'a syn::DeriveInput, derive: &str) -> syn::Result<Vec<&'a syn::Ident>> {
-    match &ast.data {
+    let fields: Vec<&syn::Ident> = match &ast.data {
         syn::Data::Struct(syn::DataStruct { fields: syn::Fields::Named(fields), .. }) => {
-            Ok(fields.named.iter().filter_map(|f| f.ident.as_ref()).collect())
+            fields.named.iter().filter_map(|f| f.ident.as_ref()).collect()
         }
-        _ => Err(syn::Error::new_spanned(&ast.ident, format!("{} only supports structs with named fields", derive))),
+        _ => return Err(syn::Error::new_spanned(&ast.ident, format!("{} only supports structs with named fields", derive))),
+    };
+    if let Some(invalid) = fields.iter().find(|f| !is_column_name(&column(f))) {
+        return Err(syn::Error::new_spanned(
+            invalid,
+            format!("`{}` is not a valid column name, use only latin letters (a-z, A-Z), digits and `_`", column(invalid)),
+        ));
     }
+    Ok(fields)
+}
+
+// Rust identifiers accept any Unicode letter (`prénom`), columns are restricted to the latin alphabet
+// so they need no quoting in the SQL and match in every database
+fn is_column_name(name: &str) -> bool {
+    name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 // Column of a field, `r#type` is the `type` column
@@ -557,6 +570,28 @@ mod tests {
             struct NewUser { password: String }
         });
         assert!(!without.contains("BeforeSave"), "{}", without);
+    }
+
+    #[test]
+    fn column_names_use_the_latin_alphabet() {
+        let model = expand(impl_sqlx_model, syn::parse_quote! {
+            #[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]
+            #[sqlx_model(database = "sqlite")]
+            struct Project { id: Id, prénom: String }
+        });
+        assert!(model.starts_with("error: `prénom` is not a valid column name"), "{}", model);
+        let new = expand(impl_sqlx_new_model, syn::parse_quote! {
+            #[http_create(SaveQuery, AppState)]
+            #[sqlx_model(database = "sqlite", model = "Project")]
+            struct NewProject { 名前: String }
+        });
+        assert!(new.starts_with("error: `名前` is not a valid column name"), "{}", new);
+        let updatable = expand(impl_sqlx_updatable_model, syn::parse_quote! {
+            #[http_update(Id, UpdateQuery, Project, FindQuery, AppState)]
+            #[sqlx_model(database = "sqlite")]
+            struct UpdatableProject { id: Id, line2_total: i32, r#type: i32 }
+        });
+        assert!(!updatable.starts_with("error"), "{}", updatable);
     }
 
     #[test]
