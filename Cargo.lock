@@ -1446,7 +1446,7 @@ dependencies = [
 
 [[package]]
 name = "octopux"
-version = "0.15.0"
+version = "0.17.3"
 dependencies = [
  "actix-web",
  "anyhow",
@@ -1462,16 +1462,17 @@ dependencies = [
 
 [[package]]
 name = "octopux-cli"
-version = "0.15.0"
+version = "0.17.3"
 dependencies = [
  "chrono",
  "sqlx",
  "structopt",
+ "tokio",
 ]
 
 [[package]]
 name = "octopux-derive"
-version = "0.15.0"
+version = "0.17.3"
 dependencies = [
  "darling 0.24.1",
  "proc-macro2",

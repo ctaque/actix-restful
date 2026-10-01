@@ -312,7 +312,7 @@ impl HasMany for ProjectBooks {
 
 ## CLI reference
 
-The `octopux` binary writes the files in the working directory (usually `src`). The generated files only rely on `octopux` and `serde`, plus `sqlx`, `chrono` and `apistos` depending on the options.
+The `octopux` binary writes the models and relations in the `src` folder of the working directory when it exists, in the working directory otherwise (e.g. when run from `src`). The generated files only rely on `octopux` and `serde`, plus `sqlx`, `chrono` and `apistos` depending on the options.
 
 ### --bootstrap
 
@@ -341,10 +341,9 @@ The CLI then offers to install the dependencies with `cargo add` (it needs a `Ca
 | `sqlx@0.9` (`runtime-tokio`, `sqlite`, `chrono`, `macros`, `migrate`) | Always |
 | `apistos@0.9` (`chrono`, `swagger-ui`), `apistos-schemars@0.8` renamed `schemars` | With `--openapi` |
 
-Then generate a model in `src`, declare it with `mod project;` and mount it with `.configure(project::configure)` in the `v1` scope of `src/main.rs`:
+Then generate a model from the crate root (it is written in `src`), declare it with `mod project;` and mount it with `.configure(project::configure)` in the `v1` scope of `src/main.rs`:
 
 ```bash
-cd src
 octopux generate-model --name Project --fields --sqlx --migration --openapi
 ```
 
@@ -364,6 +363,8 @@ Generates `project.rs`, to declare with `mod project;`. Its structs are public, 
 | `--fields` | Ask interactively for the fields, see [below](#--fields) |
 | `--sqlx` | Implement the queries with the [sqlx derives](#sqlx-models) (requires `--fields`) |
 | `--migration` | Create the SQL migration of the table (requires `--fields`) |
+| `--foreign-keys` | Ask, for each field, for the table and the column it references, see [below](#--foreign-keys) (requires `--migration`) |
+| `--unique` | Ask, for each field, whether its column is unique, see [below](#--unique) (requires `--migration`) |
 | `--sqlite` (default), `--postgres`, `--mysql` | The database targeted by `--sqlx` and `--migration` |
 | `--timestamps` | Add `created_at`, `updated_at` and `deleted_at` fields, with soft delete |
 | `--openapi` | Derive `JsonSchema` and `ApiComponent`, and generate the `configure` function mounting the documented routes |
@@ -392,7 +393,7 @@ Shortcuts:
 - a trailing `?` makes the type optional: `2?` gives `Option<i32>`, `?` alone `Option<String>`
 - `-` removes the last field
 
-The declared fields are summed up before the model is generated. The output is colored in a terminal, set `NO_COLOR` to disable it.
+The declared fields and the files to write (created, or overwritten with `--force`) are summed up, then the CLI asks for saving them: only `n` cancels, nothing is written then. The output is colored in a terminal, set `NO_COLOR` to disable it.
 
 #### `--sqlx`
 
@@ -408,12 +409,20 @@ Requires `--fields`. Creates `<timestamp>_create_project.sql` in the `migrations
 
 Each field type is mapped to the column type sqlx declares for it (`<T as sqlx::Type<DB>>::type_info().name()`), so the columns always decode into the model fields. `Option<T>` fields are nullable.
 
+With PostgreSQL and MySQL, `String` columns are `VARCHAR`: after the type, the CLI asks for their length, `255` when empty (up to `10485760` with PostgreSQL, `16383` with MySQL).
+
+```
+? Field 1 name › title:String
+? Length of `title` › (VARCHAR, 1 to 10485760) [255] 80
+  ✔ title: String (length 80)
+```
+
 <details>
 <summary>Column types by database</summary>
 
 | Rust type | SQLite | PostgreSQL | MySQL |
 |---|---|---|---|
-| `String` | `TEXT` | `TEXT` | `VARCHAR(255)` |
+| `String` | `TEXT` | `VARCHAR(255)` | `VARCHAR(255)` |
 | `i8` | `INTEGER` | | `TINYINT` |
 | `i16` | `INTEGER` | `INT2` | `SMALLINT` |
 | `i32` | `INTEGER` | `INT4` | `INT` |
@@ -435,6 +444,54 @@ Each field type is mapped to the column type sqlx declares for it (`<T as sqlx::
 ```bash
 octopux generate-model --name Project --fields --sqlx --migration --postgres
 ```
+
+#### `--foreign-keys`
+
+Requires `--migration`. After the type of each field, the CLI proposes the tables and their columns: the field becomes a foreign key of the migration. An empty answer means no reference, and the column defaults to the primary key.
+
+The tables are read from the database of `DATABASE_URL` when it is set (the tables of the current schema with PostgreSQL and MySQL; a relative SQLite file is also looked up at the crate root, and opened read-only). Otherwise they are read from the `CREATE TABLE` statements of the migrations folder. The model itself is always proposed, for a self reference (`parent_id`), with the fields declared before.
+
+```
+$ octopux generate-model --name Book --fields --migration --foreign-keys --postgres
+✔ 2 tables read from `DATABASE_URL`
+? Field 1 name › author_id:i64
+  1) author  2) project  3) book (this model)
+? Table referenced by `author_id` › (number or name, empty for none) 1
+  1) id INT8 (unique)  2) name TEXT
+? Column of `author` referenced by `author_id` › (number or name) [id]
+  ✔ author_id: i64 → author (id)
+```
+
+```sql
+CREATE TABLE IF NOT EXISTS book (
+    id BIGSERIAL PRIMARY KEY,
+    author_id INT8 NOT NULL,
+    FOREIGN KEY (author_id) REFERENCES author (id)
+);
+```
+
+The CLI warns when the referenced column is neither a primary key nor unique, or when its type differs from the column of the field (`i32` referencing a `BIGSERIAL` id), as the database would refuse the foreign key. Declare the referencing fields as `i64` to reference the `id` of the generated models.
+
+#### `--unique`
+
+Requires `--migration`. After the type of each field (and its reference with `--foreign-keys`), the CLI asks whether its column is unique: the migration then declares a `UNIQUE` constraint on it. An empty answer means not unique. With `--foreign-keys`, the unique fields of the model are proposed as unique columns for a self reference.
+
+```
+$ octopux generate-model --name Author --fields --migration --unique --postgres
+? Field 1 name › email:String
+? Is `email` unique › (y/N) y
+  ✔ email: String (unique)
+```
+
+```sql
+CREATE TABLE IF NOT EXISTS author (
+    id BIGSERIAL PRIMARY KEY,
+    email VARCHAR(255) NOT NULL,
+    UNIQUE (email)
+);
+```
+
+With `--mysql`, the CLI warns when the column is a `BLOB` or a `TEXT` (`Vec<u8>`), on which MySQL refuses a unique index without a key length.
 
 #### `--timestamps`
 
