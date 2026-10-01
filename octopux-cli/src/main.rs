@@ -2,11 +2,56 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use sqlx::TypeInfo;
 use structopt::StructOpt;
 use std::fs;
-use std::io::{self, BufRead, Write, Error};
+use std::io::{self, BufRead, IsTerminal, Write, Error};
 use std::path::{Path, PathBuf};
 use std::process;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+// Whether the messages are colored, enabled by `main` when writing to a terminal and NO_COLOR is not set,
+// so the tests and the piped output get plain text
+static COLOR: AtomicBool = AtomicBool::new(false);
+
+// Wraps `text` in the ANSI `code` style when colors are enabled,
+// the style is restored after the resets of the spans already painted in `text`
+fn paint(code: &str, text: &str) -> String {
+    if COLOR.load(Ordering::Relaxed) {
+        let start = format!("\x1b[{}m", code);
+        format!("{}{}\x1b[0m", start, text.replace("\x1b[0m", &format!("\x1b[0m{}", start)))
+    } else {
+        text.to_string()
+    }
+}
+
+fn bold(text: &str) -> String { paint("1", text) }
+fn dim(text: &str) -> String { paint("2", text) }
+fn red(text: &str) -> String { paint("31", text) }
+fn green(text: &str) -> String { paint("32", text) }
+fn yellow(text: &str) -> String { paint("33", text) }
+fn cyan(text: &str) -> String { paint("36", text) }
+fn magenta(text: &str) -> String { paint("35", text) }
+
+// Colors the `code` spans of a message, backticks included
+fn highlight(message: &str) -> String {
+    message
+        .split('`')
+        .enumerate()
+        .map(|(i, part)| if i % 2 == 1 { cyan(&format!("`{}`", part)) } else { part.to_string() })
+        .collect()
+}
+
+fn success(message: &str) -> String {
+    format!("{} {}", green("✔"), highlight(message))
+}
+
+fn failure(message: &str) -> String {
+    format!("{} {}", red("✘"), highlight(message))
+}
+
+fn warning(message: &str) -> String {
+    format!("{} {}", yellow("!"), highlight(message))
+}
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "octopux")]
@@ -234,13 +279,17 @@ fn field_types_menu() -> String {
     FIELD_TYPES
         .iter()
         .enumerate()
-        .map(|(i, ty)| format!("{}) {}", i + 1, ty))
+        .map(|(i, ty)| format!("{} {}", magenta(&format!("{})", i + 1)), ty))
         .collect::<Vec<_>>()
         .join("  ")
 }
 
-// Resolves a type answer: empty for the default, a number from the menu, or any custom type
+// Resolves a type answer: empty for the default, a number from the menu, or any custom type,
+// a trailing `?` makes it optional (`3?` gives `Option<i64>`, `?` gives `Option<String>`)
 fn parse_field_type(answer: &str) -> Option<String> {
+    if let Some(inner) = answer.strip_suffix('?') {
+        return parse_field_type(inner.trim()).map(|ty| if ty.starts_with("Option<") { ty } else { format!("Option<{}>", ty) });
+    }
     if answer.is_empty() {
         return Some(FIELD_TYPES[0].to_string());
     }
@@ -307,49 +356,111 @@ fn read_fields<R: BufRead, W: Write>(
 ) -> Result<Vec<Field>, Error> {
     let mut fields: Vec<Field> = Vec::new();
     let reserved: &[&str] = if timestamps { &["id", "created_at", "updated_at", "deleted_at"] } else { &["id"] };
+    writeln!(output, "{}", bold("Model fields"))?;
     if timestamps {
-        writeln!(output, "Enter the model fields (empty name to finish), `id: Id`, `created_at`, `updated_at` and `deleted_at` are already declared")?;
+        writeln!(output, "{}", highlight("Enter the model fields (empty name to finish), `id: Id`, `created_at`, `updated_at` and `deleted_at` are already declared"))?;
     } else {
-        writeln!(output, "Enter the model fields (empty name to finish), `id: Id` is already declared")?;
+        writeln!(output, "{}", highlight("Enter the model fields (empty name to finish), `id: Id` is already declared"))?;
     }
-    writeln!(output, "Wrap a type in `Option<T>` (e.g. `Option<i32>`) to make the field optional, its column is then nullable")?;
+    writeln!(output, "{}", highlight("Wrap a type in `Option<T>` (e.g. `Option<i32>`) to make the field optional, its column is then nullable"))?;
+    writeln!(output, "{}", dim(&highlight("Tips: `name:type` skips the type question (`stars:i32`, `stars:2`), a trailing `?` makes the type optional (`2?`), `-` removes the last field")))?;
     loop {
-        let name = match prompt(input, output, "Field name: ")? {
-            Some(name) if !name.is_empty() => name,
+        let message = format!("{} {} ", cyan("?"), bold(&format!("Field {} name ›", fields.len() + 1)));
+        let answer = match prompt(input, output, &message)? {
+            Some(answer) if !answer.is_empty() => answer,
             _ => break,
+        };
+        if answer == "-" {
+            match fields.pop() {
+                Some(field) => writeln!(output, "{}", warning(&format!("Field `{}` removed", field.name)))?,
+                None => writeln!(output, "{}", warning("No field to remove"))?,
+            }
+            continue;
+        }
+        // `name:type` gives the type with the name
+        let (name, inline_type) = match answer.split_once(':') {
+            Some((name, ty)) => (name.trim().to_string(), Some(ty.trim().to_string())),
+            None => (answer, None),
         };
         let snake = to_snake_case(&name);
         if !is_field_name(&snake) {
-            writeln!(output, "`{}` is not a valid field name, use snake_case", name)?;
+            writeln!(output, "{}", failure(&format!("`{}` is not a valid field name, use snake_case", name)))?;
             continue;
         }
         if snake != name {
-            writeln!(output, "  `{}` renamed to `{}`", name, snake)?;
+            writeln!(output, "  {}", dim(&highlight(&format!("`{}` renamed to `{}`", name, snake))))?;
         }
         let name = snake;
         if reserved.contains(&name.as_str()) || fields.iter().any(|f| f.name == name) {
-            writeln!(output, "Field `{}` is already declared", name)?;
+            writeln!(output, "{}", failure(&format!("Field `{}` is already declared", name)))?;
             continue;
         }
-        writeln!(output, "  {}", field_types_menu())?;
+        let mut answer = inline_type;
+        if answer.is_none() {
+            writeln!(output, "  {}", field_types_menu())?;
+        }
         let ty = loop {
-            let message = format!("Type of `{}` (number or custom type) [{}]: ", name, FIELD_TYPES[0]);
-            let answer = prompt(input, output, &message)?.unwrap_or_default();
-            match (parse_field_type(&answer), dialect) {
-                (Some(ty), Some(dialect)) if dialect.sql_column_type(&ty).is_none() => writeln!(
-                    output,
-                    "`{}` has no {} column type, use one of {}, or Option<T> of them",
-                    ty,
-                    dialect.name(),
-                    dialect.sql_types().iter().map(|(ty, _)| *ty).collect::<Vec<_>>().join(", ")
-                )?,
-                (Some(ty), _) => break ty,
-                (None, _) => writeln!(output, "`{}` is not in the list, pick 1 to {}", answer, FIELD_TYPES.len())?,
+            let answer = match answer.take() {
+                Some(answer) => answer,
+                None => {
+                    let message = format!(
+                        "{} {} {} ",
+                        cyan("?"),
+                        bold(&format!("Type of {} ›", cyan(&format!("`{}`", name)))),
+                        dim(&format!("(number or custom type) [{}]", FIELD_TYPES[0]))
+                    );
+                    prompt(input, output, &message)?.unwrap_or_default()
+                }
+            };
+            match check_field_type(&answer, dialect) {
+                Ok(ty) => break ty,
+                Err(error) => {
+                    writeln!(output, "{}", failure(&error))?;
+                    writeln!(output, "  {}", field_types_menu())?;
+                }
             }
         };
+        writeln!(output, "  {} {}", green("✔"), field_line(&name, &ty, 0))?;
         fields.push(Field { name, ty });
     }
+    if !fields.is_empty() {
+        writeln!(output, "{}", fields_summary(&fields, timestamps))?;
+    }
     Ok(fields)
+}
+
+// The type of a type answer (see `parse_field_type`), or why it is refused,
+// with a `dialect`, only accepts types with a column type in its database
+fn check_field_type(answer: &str, dialect: Option<Dialect>) -> Result<String, String> {
+    match (parse_field_type(answer), dialect) {
+        (Some(ty), Some(dialect)) if dialect.sql_column_type(&ty).is_none() => Err(format!(
+            "`{}` has no {} column type, use one of {}, or Option<T> of them",
+            ty,
+            dialect.name(),
+            dialect.sql_types().iter().map(|(ty, _)| *ty).collect::<Vec<_>>().join(", ")
+        )),
+        (Some(ty), _) => Ok(ty),
+        (None, _) => Err(format!("`{}` is not in the list, pick 1 to {}", answer, FIELD_TYPES.len())),
+    }
+}
+
+// `name: Type`, the name padded to `width`, optional types flagged as nullable
+fn field_line(name: &str, ty: &str, width: usize) -> String {
+    let nullable = if ty.starts_with("Option<") { dim(" (nullable)") } else { String::new() };
+    format!("{}: {}{}", bold(&format!("{:<width$}", name, width = width)), yellow(ty), nullable)
+}
+
+// Recap of the declared fields, with the `id` and the timestamps declared by the CLI dimmed
+fn fields_summary(fields: &[Field], timestamps: bool) -> String {
+    let declared: Vec<(&str, &str)> = std::iter::once(("id", "Id"))
+        .chain(timestamps.then_some(TIMESTAMP_COLUMNS.map(|c| (c, TIMESTAMP_TYPE))).into_iter().flatten())
+        .collect();
+    let width = fields.iter().map(|f| f.name.len()).chain(declared.iter().map(|(n, _)| n.len())).max().unwrap_or(0);
+    let mut lines = vec![format!("\n{}", bold(&format!("{} field{} declared", fields.len(), if fields.len() > 1 { "s" } else { "" })))];
+    lines.push(format!("  {}", dim(&format!("{:<width$}: {}", "id", "Id", width = width))));
+    lines.extend(fields.iter().map(|f| format!("  {}", field_line(&f.name, &f.ty, width))));
+    lines.extend(declared.iter().skip(1).map(|(n, ty)| format!("  {}", dim(&format!("{:<width$}: {}", n, ty, width = width)))));
+    lines.join("\n") + "\n"
 }
 
 // Bodies of find, list, delete, save and update, as left to the user without --sqlx
@@ -591,7 +702,7 @@ fn with_header(comment: &str, content: &str) -> String {
 // Exits when `path` exists and is not to be overwritten, before prompting for anything
 fn refuse_overwrite(path: &str, force: bool, what: &str) {
     if !force && Path::new(path).exists() {
-        eprintln!("{} already exists, use --force to overwrite it, {} not generated", path, what);
+        eprintln!("{}", failure(&format!("{} already exists, use --force to overwrite it, {} not generated", path, what)));
         process::exit(1);
     }
 }
@@ -603,7 +714,7 @@ fn write_migration(suffix: &str, sql: &str) -> Result<(), Error> {
     fs::create_dir_all(&dir)?;
     let path = dir.join(format!("{}_{}.sql", migration_timestamp(secs), suffix)).display().to_string();
     fs::write(&path, with_header("--", sql))?;
-    println!("Successfully generated migration {}", path);
+    println!("{}", success(&format!("Successfully generated migration {}", path)));
     Ok(())
 }
 
@@ -1078,12 +1189,12 @@ fn bootstrap<R: BufRead, W: Write>(root: &Path, openapi: bool, input: &mut R, ou
     let src = root.join("src");
     let helpers = src.join("helpers.rs");
     if helpers.exists() {
-        eprintln!("{} already exists, project not bootstrapped", helpers.display());
+        eprintln!("{}", failure(&format!("{} already exists, project not bootstrapped", helpers.display())));
         process::exit(1);
     }
     let main = src.join("main.rs");
     if main.exists() && !confirm(input, output, &format!("{} already exists, overwrite it with the generated one?", main.display()))? {
-        eprintln!("{} kept, project not bootstrapped", main.display());
+        eprintln!("{}", failure(&format!("{} kept, project not bootstrapped", main.display())));
         process::exit(1);
     }
     fs::create_dir_all(&src)?;
@@ -1091,8 +1202,11 @@ fn bootstrap<R: BufRead, W: Write>(root: &Path, openapi: bool, input: &mut R, ou
         fs::write(src.join(name), with_header("//", content))?;
     }
     println!(
-        "Successfully bootstrapped src/main.rs and src/helpers.rs, generate a model with `octopux generate-model --name <Model>{}` in src, then declare it with `mod <model>;` and mount it with `.configure(<model>::configure)` in the v1 scope of src/main.rs",
-        if openapi { " --openapi" } else { "" }
+        "{}",
+        success(&format!(
+            "Successfully bootstrapped src/main.rs and src/helpers.rs, generate a model with `octopux generate-model --name <Model>{}` in src, then declare it with `mod <model>;` and mount it with `.configure(<model>::configure)` in the v1 scope of src/main.rs",
+            if openapi { " --openapi" } else { "" }
+        ))
     );
     Ok(())
 }
@@ -1121,29 +1235,33 @@ fn bootstrap_dependencies(openapi: bool) -> Vec<Vec<String>> {
 
 // Only an explicit yes accepts, an empty answer or the end of the input refuses
 fn confirm<R: BufRead, W: Write>(input: &mut R, output: &mut W, message: &str) -> Result<bool, Error> {
-    let answer = prompt(input, output, &format!("{} (y/N) ", message))?;
+    let answer = prompt(input, output, &format!("{} {} {} ", cyan("?"), bold(&highlight(message)), dim("(y/N)")))?;
     Ok(matches!(answer.as_deref().map(str::to_lowercase).as_deref(), Some("y" | "yes")))
 }
 
 // Runs `cargo add` in `root` for each dependency of the bootstrapped project
 fn install_dependencies(root: &Path, openapi: bool) -> Result<(), Error> {
     if !root.join("Cargo.toml").exists() {
-        eprintln!("No Cargo.toml in {}, dependencies not installed, create the crate with `cargo init` first", root.display());
+        eprintln!("{}", failure(&format!("No Cargo.toml in {}, dependencies not installed, create the crate with `cargo init` first", root.display())));
         process::exit(1);
     }
     for args in bootstrap_dependencies(openapi) {
         let status = process::Command::new("cargo").arg("add").args(&args).current_dir(root).status()?;
         if !status.success() {
-            eprintln!("`cargo add {}` failed, remaining dependencies not installed", args.join(" "));
+            eprintln!("{}", failure(&format!("`cargo add {}` failed, remaining dependencies not installed", args.join(" "))));
             process::exit(1);
         }
     }
-    println!("Successfully installed the dependencies");
+    println!("{}", success("Successfully installed the dependencies"));
     Ok(())
 }
 
 fn main() -> Result<(), Error> {
     let cli = Cli::from_args();
+    COLOR.store(
+        io::stdout().is_terminal() && io::stderr().is_terminal() && std::env::var_os("NO_COLOR").is_none(),
+        Ordering::Relaxed,
+    );
     if cli.bootstrap {
         let root = std::env::current_dir()?;
         let mut input = io::stdin().lock();
@@ -1179,25 +1297,25 @@ fn run(opt: Opt) -> Result<(), Error> {
             };
             // the INSERT and UPDATE queries need at least one column
             if sqlx && fields.is_empty() {
-                eprintln!("--sqlx needs at least one field, model {} not generated", name);
+                eprintln!("{}", failure(&format!("--sqlx needs at least one field, model {} not generated", name)));
                 process::exit(1);
             }
             let sql = if migration {
                 Some(render_migration(&name, &fields, timestamps, dialect).unwrap_or_else(|e| {
-                    eprintln!("{}, model {} not generated", e, name);
+                    eprintln!("{}", failure(&format!("{}, model {} not generated", e, name)));
                     process::exit(1);
                 }))
             } else {
                 None
             };
             fs::write(&path, with_header("//", &render_model(&name, openapi, sqlx, timestamps, &fields, dialect)))?;
-            println!("Successfully generated model {}, declare it with `mod {};`", path, module);
+            println!("{}", success(&format!("Successfully generated model {}, declare it with `mod {};`", path, module)));
             if let Some(sql) = sql {
                 write_migration(&format!("create_{}", name.to_lowercase()), &sql)?;
                 if overwrites {
                     println!(
-                        "The migration creates the {} table only if it does not exist yet",
-                        name.to_lowercase()
+                        "{}",
+                        warning(&format!("The migration creates the {} table only if it does not exist yet", name.to_lowercase()))
                     );
                 }
             }
@@ -1208,7 +1326,7 @@ fn run(opt: Opt) -> Result<(), Error> {
             let relation = Relation::new(parent, child, name, foreign_key, through, child_key);
             let columns = [Some(&relation.name), Some(&relation.foreign_key), relation.through.as_ref().map(|t| &t.child_key)];
             if let Some(invalid) = columns.into_iter().flatten().find(|c| !is_field_name(c)) {
-                eprintln!("`{}` is not a valid name, use snake_case, relation not generated", invalid);
+                eprintln!("{}", failure(&format!("`{}` is not a valid name, use snake_case, relation not generated", invalid)));
                 process::exit(1);
             }
             let module = relation.module();
@@ -1216,8 +1334,11 @@ fn run(opt: Opt) -> Result<(), Error> {
             refuse_overwrite(&path, force, "relation");
             fs::write(&path, with_header("//", &render_relation(&relation, openapi, sqlx, timestamps, dialect)))?;
             println!(
-                "Successfully generated relation {}, declare it with `mod {};` and mount it with `.configure({}::configure)` in the scope of the {} routes",
-                path, module, module, relation.parent.to_lowercase()
+                "{}",
+                success(&format!(
+                    "Successfully generated relation {}, declare it with `mod {};` and mount it with `.configure({}::configure)` in the scope of the {} routes",
+                    path, module, module, relation.parent.to_lowercase()
+                ))
             );
             if migration {
                 let (table, column) = relation.foreign_key_column();
@@ -1360,6 +1481,34 @@ mod tests {
         let output = String::from_utf8(output).unwrap();
         assert!(output.contains("1) String  2) i32"));
         assert!(output.contains("`42` is not in the list, pick 1 to 11"));
+    }
+
+    #[test]
+    fn field_type_can_be_made_optional_with_a_question_mark() {
+        assert_eq!(parse_field_type("?"), Some("Option<String>".into()));
+        assert_eq!(parse_field_type("3?"), Some("Option<i64>".into()));
+        assert_eq!(parse_field_type("NaiveDate?"), Some("Option<NaiveDate>".into()));
+        assert_eq!(parse_field_type("Option<i32>?"), Some("Option<i32>".into()));
+        assert_eq!(parse_field_type("42?"), None);
+    }
+
+    #[test]
+    fn read_fields_accepts_inline_types_and_removes_the_last_field() {
+        let input = "title:String\nstars:2?\nviews\n3\n-\nscore: f64\nbad:42\n5\n\n";
+        let mut output = Vec::new();
+        let fields = read_fields(&mut input.as_bytes(), &mut output, false, None).unwrap();
+        assert_eq!(fields, vec![
+            Field { name: "title".into(), ty: "String".into() },
+            Field { name: "stars".into(), ty: "Option<i32>".into() },
+            Field { name: "score".into(), ty: "f64".into() },
+            Field { name: "bad".into(), ty: "bool".into() },
+        ]);
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains("Field `views` removed"));
+        assert!(output.contains("`42` is not in the list, pick 1 to 11"));
+        assert!(output.contains("4 fields declared"));
+        assert!(output.contains("stars: Option<i32> (nullable)"));
+        assert!(!output.contains('\x1b'));
     }
 
     #[test]

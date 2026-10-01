@@ -377,7 +377,22 @@ The CLI asks for the name and type of each field. The type is picked by its numb
 
 ```
 $ octopux generate-model --name Project --fields
+? Field 1 name › title
+  1) String  2) i32  3) i64  4) f64  5) bool  6) Option<String>  7) DateTime<Utc>  ...
+? Type of `title` › (number or custom type) [String]
+  ✔ title: String
+? Field 2 name › stars:2?
+  ✔ stars: Option<i32> (nullable)
+? Field 3 name ›
 ```
+
+Shortcuts:
+
+- `name:type` gives the type with the name, without the menu (`stars:i32` or `stars:2`)
+- a trailing `?` makes the type optional: `2?` gives `Option<i32>`, `?` alone `Option<String>`
+- `-` removes the last field
+
+The declared fields are summed up before the model is generated. The output is colored in a terminal, set `NO_COLOR` to disable it.
 
 #### `--sqlx`
 
