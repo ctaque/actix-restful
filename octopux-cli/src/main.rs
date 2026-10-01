@@ -105,7 +105,6 @@ pub enum Opt {
 }
 
 const BOOTSTRAP_MAIN: &str = r#"mod helpers;
-mod project;
 use actix_web::web;
 use apistos::app::{BuildConfig, OpenApiWrapper};
 use apistos::info::Info;
@@ -117,7 +116,7 @@ use sqlx::SqlitePool;
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let pool = SqlitePool::connect("sqlite://data.db?mode=rwc").await.unwrap();
-    sqlx::migrate!().run(&pool).await.unwrap();
+    // sqlx::migrate!().run(&pool).await.unwrap();
     let state = web::Data::new(AppState { pool });
 
     actix_web::HttpServer::new(move || {
