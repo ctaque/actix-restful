@@ -12,10 +12,7 @@ Generate JSON CRUD endpoints for [Actix Web](https://actix.rs) from your structs
 - **Has-many and many-to-many relations**, listed on `GET /{model}/{id}/{relation}`
 - **A CLI** generating the models, relations and SQL migrations
 
-| octopux | Actix Web |
-| --- | --- |
-| `v0.9.0` | v4 |
-| `v0.1.0` | v3 |
+- Octopux requires `actix-web` v4.
 
 ## Table of contents
 
