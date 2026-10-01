@@ -2,8 +2,8 @@
 //! on an in-memory SQLite database.
 
 use octopux::{
-    octopux_info, anyhow, async_trait, gen_endpoint, BeforeSave, HttpCreate, HttpFindListDelete, HttpUpdate, SqlxModel, SqlxNewModel,
-    SqlxUpdatableModel,
+    octopux_info, anyhow, async_trait, gen_endpoint, BeforeSave, HttpCreate, HttpFindListDelete, HttpUpdate, SqlxFilter, SqlxModel,
+    SqlxNewModel, SqlxUpdatableModel,
 };
 use actix_web::{http::StatusCode, test, web, App};
 use chrono::{DateTime, Utc};
@@ -281,6 +281,114 @@ async fn before_save_transforms_the_payload() {
     assert_eq!(rows, 1);
 }
 
+// `offset`, `limit` and `expand` are not filters
+#[allow(dead_code)]
+#[derive(Default, Deserialize, SqlxFilter)]
+#[sqlx_filter(database = "sqlite")]
+struct ProjectFilter {
+    offset: Option<usize>,
+    limit: Option<usize>,
+    name: Option<String>,
+    r#type_gte: Option<i32>,
+    #[sqlx_filter(column = "name", op = "like")]
+    q: Option<String>,
+    created_at_lt: Option<DateTime<Utc>>,
+    #[sqlx_filter(skip)]
+    expand: bool,
+    #[sqlx_filter(sort = "name, type")]
+    sort: Option<String>,
+    #[sqlx_filter(sort_direction)]
+    order: Option<String>,
+}
+
+// Names of the live projects matching `filter`, in its order or by `id`
+async fn filtered(state: &AppState, filter: &ProjectFilter) -> anyhow::Result<Vec<String>> {
+    let mut qb = sqlx::QueryBuilder::new("SELECT name FROM project WHERE deleted_at IS NULL");
+    let mut has_where = true;
+    filter.push_filters(&mut qb, &mut has_where);
+    if !filter.push_order_by(&mut qb)? {
+        qb.push(" ORDER BY id");
+    }
+    Ok(qb.build_query_scalar().fetch_all(&state.db).await?)
+}
+
+#[actix_web::test]
+async fn filters_the_rows_on_the_set_fields() {
+    let state = state().await;
+    let app = app!(state);
+    for (name, r#type) in [("alpha", 1), ("beta", 2), ("alphabet", 3)] {
+        let req = test::TestRequest::post().uri("/project").set_json(json!({ "name": name, "type": r#type })).to_request();
+        assert!(test::call_service(&app, req).await.status().is_success());
+    }
+
+    assert_eq!(filtered(&state, &ProjectFilter::default()).await.unwrap(), ["alpha", "beta", "alphabet"]);
+    let by_name = ProjectFilter { name: Some("beta".into()), ..Default::default() };
+    assert_eq!(filtered(&state, &by_name).await.unwrap(), ["beta"]);
+    let combined = ProjectFilter { q: Some("alpha%".into()), r#type_gte: Some(2), ..Default::default() };
+    assert_eq!(filtered(&state, &combined).await.unwrap(), ["alphabet"]);
+    let before_now = ProjectFilter { created_at_lt: Some(Utc::now()), offset: Some(1), ..Default::default() };
+    assert_eq!(filtered(&state, &before_now).await.unwrap(), ["alpha", "beta", "alphabet"]);
+
+    // without a WHERE clause yet
+    let mut qb = sqlx::QueryBuilder::<sqlx::Sqlite>::new("SELECT COUNT(*) FROM project");
+    let mut has_where = false;
+    combined.push_filters(&mut qb, &mut has_where);
+    assert!(has_where);
+    assert_eq!(qb.sql().as_str(), "SELECT COUNT(*) FROM project WHERE type >= ? AND name LIKE ?");
+    let count: i64 = qb.build_query_scalar().fetch_one(&state.db).await.unwrap();
+    assert_eq!(count, 1);
+}
+
+#[actix_web::test]
+async fn orders_the_rows_by_the_sort_field() {
+    let state = state().await;
+    let app = app!(state);
+    for (name, r#type) in [("b", 1), ("a", 1), ("c", 2)] {
+        let req = test::TestRequest::post().uri("/project").set_json(json!({ "name": name, "type": r#type })).to_request();
+        assert!(test::call_service(&app, req).await.status().is_success());
+    }
+    let sorted = |sort: &str| ProjectFilter { sort: Some(sort.into()), ..Default::default() };
+
+    assert_eq!(filtered(&state, &sorted("name")).await.unwrap(), ["a", "b", "c"]);
+    assert_eq!(filtered(&state, &sorted("-type, name")).await.unwrap(), ["c", "a", "b"]);
+    let combined = ProjectFilter { r#type_gte: Some(1), ..sorted("-name") };
+    assert_eq!(filtered(&state, &combined).await.unwrap(), ["c", "b", "a"]);
+
+    let mut qb = sqlx::QueryBuilder::<sqlx::Sqlite>::new("SELECT name FROM project");
+    assert!(sorted("-type,name").push_order_by(&mut qb).unwrap());
+    assert_eq!(qb.sql().as_str(), "SELECT name FROM project ORDER BY type DESC, name ASC");
+
+    // the direction orders the columns without `-`, which stay descending
+    let directed = |sort: &str, order: &str| ProjectFilter { order: Some(order.into()), ..sorted(sort) };
+    assert_eq!(filtered(&state, &directed("name", "desc")).await.unwrap(), ["c", "b", "a"]);
+    assert_eq!(filtered(&state, &directed("name", "ASC")).await.unwrap(), ["a", "b", "c"]);
+    assert_eq!(filtered(&state, &directed("-type,name", "desc")).await.unwrap(), ["c", "b", "a"]);
+    let mut qb = sqlx::QueryBuilder::<sqlx::Sqlite>::new("SELECT name FROM project");
+    assert!(directed("type,-name", "desc").push_order_by(&mut qb).unwrap());
+    assert_eq!(qb.sql().as_str(), "SELECT name FROM project ORDER BY type DESC, name DESC");
+    // without `sort`, nothing to order
+    let direction_only = ProjectFilter { order: Some("desc".into()), ..Default::default() };
+    assert_eq!(filtered(&state, &direction_only).await.unwrap(), ["b", "a", "c"]);
+
+    // only the columns of the attribute, each once
+    for (sort, error) in [
+        ("id", "invalid sort column `id`, use name, type"),
+        ("name; DROP TABLE project", "invalid sort column `name; DROP TABLE project`, use name, type"),
+        ("", "invalid sort column ``, use name, type"),
+        ("name,-name", "the sort column `name` is repeated"),
+    ] {
+        let mut qb = sqlx::QueryBuilder::<sqlx::Sqlite>::new("SELECT name FROM project");
+        assert_eq!(sorted(sort).push_order_by(&mut qb).unwrap_err().to_string(), error);
+        assert_eq!(qb.sql().as_str(), "SELECT name FROM project");
+    }
+    for filter in [directed("name", "down"), ProjectFilter { order: Some("".into()), ..Default::default() }] {
+        let mut qb = sqlx::QueryBuilder::<sqlx::Sqlite>::new("SELECT name FROM project");
+        let error = filter.push_order_by(&mut qb).unwrap_err().to_string();
+        assert!(error.starts_with("invalid sort direction"), "{}", error);
+        assert_eq!(qb.sql().as_str(), "SELECT name FROM project");
+    }
+}
+
 // The PostgreSQL and MySQL queries are only type checked: they differ from the SQLite ones
 // by their placeholders, and on MySQL by the SELECT replacing RETURNING
 macro_rules! typed_models {
@@ -288,7 +396,7 @@ macro_rules! typed_models {
         #[allow(dead_code)]
         mod $module {
             use super::{DeleteQuery, FindQuery, Id, ListQuery, SaveQuery, UpdateQuery};
-            use octopux::{HttpCreate, HttpFindListDelete, HttpUpdate, SqlxModel, SqlxNewModel, SqlxUpdatableModel};
+            use octopux::{HttpCreate, HttpFindListDelete, HttpUpdate, SqlxFilter, SqlxModel, SqlxNewModel, SqlxUpdatableModel};
             use chrono::{DateTime, Utc};
             use serde::{Deserialize, Serialize};
 
@@ -334,6 +442,22 @@ macro_rules! typed_models {
                 id: Id,
                 name: String,
                 updated_at: Option<DateTime<Utc>>,
+            }
+
+            #[derive(Deserialize, SqlxFilter)]
+            #[sqlx_filter(database = $database)]
+            pub struct ItemFilter {
+                offset: Option<usize>,
+                limit: Option<usize>,
+                name: Option<String>,
+                #[sqlx_filter(column = "name", op = "like")]
+                q: Option<String>,
+                id_gte: Option<Id>,
+                created_at_lt: Option<DateTime<Utc>>,
+                #[sqlx_filter(sort = "name, created_at")]
+                sort: Option<String>,
+                #[sqlx_filter(sort_direction)]
+                order: Option<String>,
             }
         }
     };

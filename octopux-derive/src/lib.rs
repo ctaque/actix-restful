@@ -6,6 +6,7 @@ use quote::{quote, ToTokens};
 use darling::ast::NestedMeta;
 use syn::{ self, Result as SynResult, Token, parse_macro_input };
 
+mod sqlx_filter;
 mod sqlx_model;
 
 struct HttpCreateDeriveParams (syn::Ident, syn::Ident);
@@ -284,6 +285,14 @@ pub fn sqlx_new_model(input: proc_macro::TokenStream) -> proc_macro::TokenStream
 pub fn sqlx_updatable_model(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let ast = parse_macro_input!(input as syn::DeriveInput);
     sqlx_model::impl_sqlx_updatable_model(&ast).unwrap_or_else(|e| e.to_compile_error()).into()
+}
+
+/// Implements `SqlxFilter` on a list query, a condition on a column for each of its `Option` fields,
+/// configured by `#[sqlx_filter(database = "sqlite" | "postgres" | "mysql")]`
+#[proc_macro_derive(SqlxFilter, attributes(sqlx_filter))]
+pub fn sqlx_filter(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let ast = parse_macro_input!(input as syn::DeriveInput);
+    sqlx_filter::impl_sqlx_filter(&ast).unwrap_or_else(|e| e.to_compile_error()).into()
 }
 
 fn has_named_field(ast: &syn::DeriveInput, field: &str) -> bool {

@@ -46,7 +46,7 @@ Optional features:
 
 | Feature | Enables | Extra dependencies |
 | --- | --- | --- |
-| `sqlx` | The `SqlxModel`, `SqlxNewModel` and `SqlxUpdatableModel` derives (see [sqlx models](#sqlx-models)) | `cargo add sqlx --features runtime-tokio,sqlite,macros,migrate,chrono` (pick your database driver) |
+| `sqlx` | The `SqlxModel`, `SqlxNewModel`, `SqlxUpdatableModel` and `SqlxFilter` derives (see [sqlx models](#sqlx-models)) | `cargo add sqlx --features runtime-tokio,sqlite,macros,migrate,chrono` (pick your database driver) |
 | `openapi` | The documented routes (see [OpenAPI documentation](#openapi-documentation-with-apistos)) | `cargo add apistos --features chrono,swagger-ui`<br>`cargo add schemars --rename schemars --package apistos-schemars` |
 
 ```bash
@@ -277,6 +277,40 @@ impl BeforeSave<AppState> for NewUser {
     }
 }
 ```
+
+#### Filtering and sorting with `SqlxFilter`
+
+The `SqlxFilter` derive turns the `Option` fields of a list query into the conditions of a `WHERE` clause, one for each field that is set. The column and the operator come from the field name, `name` filters `name = ...` and `price_gte` filters `price >= ...` (suffixes `_ne`, `_gt`, `_gte`, `_lt`, `_lte` and `_like`), or from `#[sqlx_filter(column = "...", op = "...")]`. `offset` and `limit` are left to the pagination, `#[sqlx_filter(skip)]` leaves out another field. The values are bound, never written in the SQL:
+
+```rust
+use octopux::SqlxFilter;
+
+#[derive(Deserialize, SqlxFilter)]
+#[sqlx_filter(database = "postgres")]
+pub struct ListQuery {
+    pub offset: Option<usize>,
+    pub limit: Option<usize>,
+    pub name: Option<String>,      // ?name=...
+    pub price_gte: Option<i32>,    // ?price_gte=...
+    #[sqlx_filter(column = "name", op = "like")]
+    pub q: Option<String>,         // ?q=alpha%
+    #[sqlx_filter(sort = "name, price")]
+    pub sort: Option<String>,      // ?sort=-price,name
+    #[sqlx_filter(sort_direction)]
+    pub order: Option<String>,     // ?order=desc
+}
+
+let mut qb = sqlx::QueryBuilder::new("SELECT * FROM project");
+let mut has_where = false; // true when the query already has a WHERE clause
+query.push_filters(&mut qb, &mut has_where);
+if !query.push_order_by(&mut qb)? {
+    qb.push(" ORDER BY id"); // without `sort`
+}
+```
+
+The `Option<String>` field marked `#[sqlx_filter(sort = "...")]` gives the `ORDER BY` clause: the columns of its value separated by commas, prefixed with `-` in descending order. Only the columns listed by the attribute are accepted, each once; any other value makes `push_order_by` return an error.
+
+The `Option<String>` field marked `#[sqlx_filter(sort_direction)]` takes `asc` or `desc` (in any case) and orders the columns that are not prefixed with `-`: `?sort=price,name&order=desc` gives `ORDER BY price DESC, name DESC`. They are ascending without it, and another value is an error. It requires the sort field.
 
 ### Has-many relations
 

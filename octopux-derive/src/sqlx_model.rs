@@ -10,14 +10,14 @@ use syn::ext::IdentExt;
 use crate::{HttpCreateDeriveParams, HttpFindListDeleteDeriveParams, HttpUpdateDeriveParams};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum Database {
+pub(crate) enum Database {
     Sqlite,
     Postgres,
     Mysql,
 }
 
 impl Database {
-    fn parse(name: &str) -> Option<Database> {
+    pub(crate) fn parse(name: &str) -> Option<Database> {
         match name {
             "sqlite" => Some(Database::Sqlite),
             "postgres" => Some(Database::Postgres),
@@ -31,6 +31,15 @@ impl Database {
         (from..from + count)
             .map(|i| if self == Database::Mysql { "?".to_string() } else { format!("${}", i) })
             .collect()
+    }
+
+    // The sqlx database type, `::octopux::__private::sqlx::Postgres`...
+    pub(crate) fn sqlx_type(self) -> TokenStream {
+        match self {
+            Database::Sqlite => quote! { ::octopux::__private::sqlx::Sqlite },
+            Database::Postgres => quote! { ::octopux::__private::sqlx::Postgres },
+            Database::Mysql => quote! { ::octopux::__private::sqlx::MySql },
+        }
     }
 
     // MySQL has no RETURNING
@@ -141,12 +150,12 @@ fn named_fields<'a>(ast: &'a syn::DeriveInput, derive: &str) -> syn::Result<Vec<
 
 // Rust identifiers accept any Unicode letter (`prénom`), columns are restricted to the latin alphabet
 // so they need no quoting in the SQL and match in every database
-fn is_column_name(name: &str) -> bool {
+pub(crate) fn is_column_name(name: &str) -> bool {
     name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 // Column of a field, `r#type` is the `type` column
-fn column(field: &syn::Ident) -> String {
+pub(crate) fn column(field: &syn::Ident) -> String {
     field.unraw().to_string()
 }
 
