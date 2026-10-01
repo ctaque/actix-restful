@@ -69,18 +69,11 @@ cargo install sqlx-cli                                                          
 
 This walkthrough builds a `Project` API persisted in SQLite with sqlx and documented with OpenAPI. It needs the `openapi` and `sqlx` features and their dependencies (see [Installation](#installation)).
 
-### 1. Generate the model
+### 1. Generate a model
 
 ```bash
 cargo new my-api && cd my-api/src
 octopux generate-model --name Project --fields --sqlx --migration --timestamps --openapi
-Field name: title
-Type of `title` (number or custom type) [String]:
-Field name: stars
-Type of `stars` (number or custom type) [String]: 2
-Field name: optional
-Type of `optional` (number or custom type) [String]: Option<String>
-Field name:
 ```
 
 (The menu of field types printed before each type is omitted here, see [generate-model](#generate-model).)
@@ -94,19 +87,18 @@ This produces:
 
 The generated model imports the application state from the crate root (`use crate::AppState;`), so `main.rs` declares it, with the sqlx `pool`:
 
+2.1) Create a `src/helpers.rs` file with the AppState struct, shared between models files and the main.rs file.
+
+2.2) Wire into `main.rs`
 ```rust
 mod project;
-
+use crate::shared::AppState;
 use actix_web::web;
 use apistos::app::{BuildConfig, OpenApiWrapper};
 use apistos::info::Info;
 use apistos::spec::Spec;
 use apistos::SwaggerUIConfig;
 use sqlx::SqlitePool;
-
-pub struct AppState {
-    pub pool: SqlitePool,
-}
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
