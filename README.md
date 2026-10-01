@@ -24,6 +24,7 @@ Generate JSON CRUD endpoints for [Actix Web](https://actix.rs) from your structs
   - [sqlx models](#sqlx-models)
   - [Has-many relations](#has-many-relations)
 - [CLI reference](#cli-reference)
+  - [--bootstrap](#--bootstrap)
   - [generate-model](#generate-model)
   - [generate-relation](#generate-relation)
 - [Examples](#examples)
@@ -82,6 +83,8 @@ This produces:
 - `migrations/<timestamp>_create_project.sql`: the migration creating the `project` table.
 
 ### 2. Wire it into `main.rs`
+
+> **Tip:** `octopux --bootstrap --openapi`, run at the root of the crate, writes the `src/main.rs` and `src/helpers.rs` below and installs their dependencies, see [--bootstrap](#--bootstrap).
 
 The generated model imports the application state from the crate root (`use crate::AppState;`), so `main.rs` declares it, with the sqlx `pool`:
 
@@ -310,6 +313,42 @@ impl HasMany for ProjectBooks {
 ## CLI reference
 
 The `octopux` binary writes the files in the working directory (usually `src`). The generated files only rely on `octopux` and `serde`, plus `sqlx`, `chrono` and `apistos` depending on the options.
+
+### --bootstrap
+
+```bash
+cargo init my-api && cd my-api
+octopux --bootstrap [--openapi]
+```
+
+Run at the root of the crate, `--bootstrap` writes the files of an actix server ready to mount generated models:
+
+- `src/main.rs`: connects a SQLite pool on `data.db`, shares it in the `AppState`, and serves an empty `v1` scope on `127.0.0.1:8085`;
+- `src/helpers.rs`: the `AppState` struct, holding the sqlx `pool`.
+
+| Option | Description |
+| --- | --- |
+| `--openapi` | Serve the routes on an [apistos](#openapi-documentation-with-apistos) app, with the OpenAPI document on `/openapi.json` and Swagger UI on `/swagger`, to mount models generated with `--openapi`. Requires `--bootstrap` |
+
+The project is not bootstrapped when `src/helpers.rs` already exists, and an existing `src/main.rs` (such as the one of `cargo init`) is only overwritten once confirmed.
+
+The CLI then offers to install the dependencies with `cargo add` (it needs a `Cargo.toml` in the working directory):
+
+| Dependency | Added |
+| --- | --- |
+| `octopux`, from the tag of the CLI version, with the `sqlx` feature (and `openapi` with `--openapi`) | Always |
+| `actix-web@4`, `serde@1` (`derive`), `chrono@0.4` (`serde`) | Always |
+| `sqlx@0.9` (`runtime-tokio`, `sqlite`, `chrono`, `macros`, `migrate`) | Always |
+| `apistos@0.9` (`chrono`, `swagger-ui`), `apistos-schemars@0.8` renamed `schemars` | With `--openapi` |
+
+Then generate a model in `src`, declare it with `mod project;` and mount it with `.configure(project::configure)` in the `v1` scope of `src/main.rs`:
+
+```bash
+cd src
+octopux generate-model --name Project --fields --sqlx --migration --openapi
+```
+
+Uncomment `sqlx::migrate!().run(&pool)` in `src/main.rs` once the crate has migrations.
 
 ### generate-model
 
