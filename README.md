@@ -39,7 +39,7 @@ cargo add actix-web
 cargo add serde --features derive
 ```
 
-`serde` is only needed for the `Serialize` / `Deserialize` derives of your models: the generated code only goes through `octopux`, which re-exports `async_trait` and `anyhow`.
+`serde` is needed because the generated models derive `Serialize` / `Deserialize`. The generated code reaches async_trait and anyhow through octopux, which re-exports them, so they don't need to be dependencies of your crate.
 
 Optional features:
 
