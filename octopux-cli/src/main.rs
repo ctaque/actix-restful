@@ -994,7 +994,7 @@ fn bootstrap<R: BufRead, W: Write>(root: &Path, input: &mut R, output: &mut W) -
         fs::write(src.join(name), content)?;
     }
     println!(
-        "Successfully bootstrapped src/main.rs and src/helpers.rs, generate the project model it mounts with `octopux generate-model --name Project --openapi` in src"
+        "Successfully bootstrapped src/main.rs and src/helpers.rs, generate the project model it mounts with `octopux generate-model --name Project --openapi` in src, then declare it with `mod project;` in src/main.rs"
     );
     Ok(())
 }
@@ -1651,7 +1651,8 @@ mod tests {
         bootstrap(&root, &mut "".as_bytes(), &mut Vec::new()).unwrap();
         let main = std::fs::read_to_string(root.join("src/main.rs")).unwrap();
         let helpers = std::fs::read_to_string(root.join("src/helpers.rs")).unwrap();
-        assert!(main.starts_with("mod helpers;\nmod project;\n"));
+        assert!(main.starts_with("mod helpers;\nuse "));
+        assert!(!main.contains("mod project;"));
         assert!(main.contains(".configure(project::configure)"));
         assert!(helpers.contains("pub pool: SqlitePool,"));
         std::fs::remove_dir_all(&root).unwrap();
