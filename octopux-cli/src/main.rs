@@ -176,7 +176,7 @@ const ENDPOINT_IMPORTS: &str = r#"
 const ENDPOINT_CONFIGURE: &str = r#"
 
     // Registers the routes of the {entity_lower_case} endpoint, to mount with `.configure({entity_lower_case}::configure)`
-    pub fn configure(cfg: &mut actix_web::web::ServiceConfig) {
+    pub fn configure(cfg: &mut apistos::web::ServiceConfig) {
         gen_endpoint!({entity}, New{entity}, Updatable{entity})(cfg)
     }
 "#;
