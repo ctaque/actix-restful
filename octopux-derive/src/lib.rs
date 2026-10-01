@@ -3,15 +3,15 @@ extern crate proc_macro;
 // and the crates they rely on: the application needs no other import nor dependency.
 use darling::FromMeta;
 use quote::{quote, ToTokens};
-use syn::{ self, Result as SynResult, AttributeArgs, Token, parse_macro_input };
+use darling::ast::NestedMeta;
+use syn::{ self, Result as SynResult, Token, parse_macro_input };
 
 mod sqlx_model;
 
 struct HttpCreateDeriveParams (syn::Ident, syn::Ident);
 impl syn::parse::Parse for HttpCreateDeriveParams {
     fn parse(input: syn::parse::ParseStream) -> SynResult<Self> {
-        let content;
-        syn::parenthesized!(content in input);
+        let content = input;
         let query = content.parse()?;
         content.parse::<Token![,]>()?;
         let app_state = content.parse()?;
@@ -26,10 +26,10 @@ pub fn http_create(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
 fn impl_http_create_macro(ast: &syn::DeriveInput) -> proc_macro::TokenStream {
     let attribute = ast.attrs.iter().filter(
-        |a| a.path.segments.len() == 1 && a.path.segments[0].ident == "http_create"
+        |a| a.path().segments.len() == 1 && a.path().segments[0].ident == "http_create"
     ).nth(0).expect("http_create attribute required for deriving HttpCreate!");
 
-    let parameter: HttpCreateDeriveParams = syn::parse2(attribute.tokens.clone()).expect("Invalid http_create attribute!");
+    let parameter: HttpCreateDeriveParams = attribute.parse_args().expect("Invalid http_create attribute!");
     let HttpCreateDeriveParams(query, app_state) = parameter;
 
     let name = &ast.ident;
@@ -54,8 +54,7 @@ fn impl_http_create_macro(ast: &syn::DeriveInput) -> proc_macro::TokenStream {
 struct HttpFindListDeleteDeriveParams (syn::Ident, syn::Ident, syn::Ident, syn::Ident, syn::Ident);
 impl syn::parse::Parse for HttpFindListDeleteDeriveParams {
     fn parse(input: syn::parse::ParseStream) -> SynResult<Self> {
-        let content;
-        syn::parenthesized!(content in input);
+        let content = input;
         let id = content.parse()?;
         content.parse::<Token![,]>()?;
         let find_query = content.parse()?;
@@ -83,7 +82,10 @@ impl ToTokens for RestfulInfo {
 
 #[proc_macro_attribute]
 pub fn octopux_info(args: proc_macro::TokenStream, input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let attrs_args = parse_macro_input!(args as AttributeArgs);
+    let attrs_args = match NestedMeta::parse_meta_list(args.into()) {
+        Ok(v) => v,
+        Err(e) => { return proc_macro::TokenStream::from(darling::Error::from(e).write_errors()); }
+    };
     let ast: syn::DeriveInput = syn::parse(input.clone()).unwrap();
 
     let args_tokens = match RestfulInfo::from_list(&attrs_args) {
@@ -114,10 +116,10 @@ pub fn http_find_list_delete(input: proc_macro::TokenStream) -> proc_macro::Toke
 
 fn impl_http_find_list_delete_macro(ast: &syn::DeriveInput) -> proc_macro::TokenStream {
     let attribute = ast.attrs.iter().filter(
-        |a| a.path.segments.len() == 1 && a.path.segments[0].ident == "http_find_list_delete"
+        |a| a.path().segments.len() == 1 && a.path().segments[0].ident == "http_find_list_delete"
     ).nth(0).expect("http_find_list_delete attribute required for deriving HttpFindListDelete!");
 
-    let parameter: HttpFindListDeleteDeriveParams = syn::parse2(attribute.tokens.clone()).expect("Invalid http_find_list_delete attribute!");
+    let parameter: HttpFindListDeleteDeriveParams = attribute.parse_args().expect("Invalid http_find_list_delete attribute!");
     let HttpFindListDeleteDeriveParams(id, find_query, list_query, delete_query, app_state) = parameter;
 
     let name = &ast.ident;
@@ -183,8 +185,7 @@ fn impl_http_find_list_delete_macro(ast: &syn::DeriveInput) -> proc_macro::Token
 struct HttpUpdateDeriveParams (syn::Ident, syn::Ident, syn::Ident, syn::Ident, syn::Ident);
 impl syn::parse::Parse for HttpUpdateDeriveParams {
     fn parse(input: syn::parse::ParseStream) -> SynResult<Self> {
-        let content;
-        syn::parenthesized!(content in input);
+        let content = input;
         let id = content.parse()?;
         content.parse::<syn::Token![,]>()?;
         let query = content.parse()?;
@@ -206,10 +207,10 @@ pub fn http_update(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
 fn impl_http_update_macro(ast: &syn::DeriveInput) -> proc_macro::TokenStream {
     let attribute = ast.attrs.iter().filter(
-        |a| a.path.segments.len() == 1 && a.path.segments[0].ident == "http_update"
+        |a| a.path().segments.len() == 1 && a.path().segments[0].ident == "http_update"
     ).nth(0).expect("http_update attribute required for deriving HttpUpdate!");
 
-    let parameter: HttpUpdateDeriveParams = syn::parse2(attribute.tokens.clone()).expect("Invalid http_update attribute!");
+    let parameter: HttpUpdateDeriveParams = attribute.parse_args().expect("Invalid http_update attribute!");
     let HttpUpdateDeriveParams(id, query, output, find_query, app_state) = parameter;
 
     let name = &ast.ident;
@@ -301,32 +302,38 @@ mod tests {
         idents.iter().map(|i| i.to_string()).collect()
     }
 
+    // Parses `tokens` as written after the attribute name, `#[attr<tokens>]`, as the derives do
+    fn params<T: syn::parse::Parse>(tokens: proc_macro2::TokenStream) -> SynResult<T> {
+        let attr: syn::Attribute = syn::parse_quote! { #[attr #tokens] };
+        attr.parse_args()
+    }
+
     #[test]
     fn parses_http_create_params() {
         let HttpCreateDeriveParams(query, app_state) =
-            syn::parse2(quote! { (SaveQuery, AppState) }).unwrap();
+            params(quote! { (SaveQuery, AppState) }).unwrap();
         assert_eq!(idents(&[&query, &app_state]), ["SaveQuery", "AppState"]);
     }
 
     #[test]
     fn rejects_http_create_params_with_missing_argument() {
-        assert!(syn::parse2::<HttpCreateDeriveParams>(quote! { (SaveQuery) }).is_err());
+        assert!(params::<HttpCreateDeriveParams>(quote! { (SaveQuery) }).is_err());
     }
 
     #[test]
     fn rejects_http_create_params_with_extra_argument() {
-        assert!(syn::parse2::<HttpCreateDeriveParams>(quote! { (SaveQuery, AppState, Extra) }).is_err());
+        assert!(params::<HttpCreateDeriveParams>(quote! { (SaveQuery, AppState, Extra) }).is_err());
     }
 
     #[test]
     fn rejects_http_create_params_without_parentheses() {
-        assert!(syn::parse2::<HttpCreateDeriveParams>(quote! { SaveQuery, AppState }).is_err());
+        assert!(params::<HttpCreateDeriveParams>(quote! { = SaveQuery }).is_err());
     }
 
     #[test]
     fn parses_http_find_list_delete_params() {
         let HttpFindListDeleteDeriveParams(id, find_query, list_query, delete_query, app_state) =
-            syn::parse2(quote! { (Id, FindQuery, ListQuery, DeleteQuery, AppState) }).unwrap();
+            params(quote! { (Id, FindQuery, ListQuery, DeleteQuery, AppState) }).unwrap();
         assert_eq!(
             idents(&[&id, &find_query, &list_query, &delete_query, &app_state]),
             ["Id", "FindQuery", "ListQuery", "DeleteQuery", "AppState"]
@@ -335,18 +342,18 @@ mod tests {
 
     #[test]
     fn rejects_http_find_list_delete_params_with_missing_argument() {
-        assert!(syn::parse2::<HttpFindListDeleteDeriveParams>(quote! { (Id, FindQuery, ListQuery, DeleteQuery) }).is_err());
+        assert!(params::<HttpFindListDeleteDeriveParams>(quote! { (Id, FindQuery, ListQuery, DeleteQuery) }).is_err());
     }
 
     #[test]
     fn rejects_http_find_list_delete_params_with_wrong_separator() {
-        assert!(syn::parse2::<HttpFindListDeleteDeriveParams>(quote! { (Id; FindQuery; ListQuery; DeleteQuery; AppState) }).is_err());
+        assert!(params::<HttpFindListDeleteDeriveParams>(quote! { (Id; FindQuery; ListQuery; DeleteQuery; AppState) }).is_err());
     }
 
     #[test]
     fn parses_http_update_params() {
         let HttpUpdateDeriveParams(id, query, output, find_query, app_state) =
-            syn::parse2(quote! { (Id, UpdateQuery, Item, FindQuery, AppState) }).unwrap();
+            params(quote! { (Id, UpdateQuery, Item, FindQuery, AppState) }).unwrap();
         assert_eq!(
             idents(&[&id, &query, &output, &find_query, &app_state]),
             ["Id", "UpdateQuery", "Item", "FindQuery", "AppState"]
@@ -355,7 +362,7 @@ mod tests {
 
     #[test]
     fn rejects_http_update_params_with_missing_argument() {
-        assert!(syn::parse2::<HttpUpdateDeriveParams>(quote! { (Id, UpdateQuery, Item, FindQuery) }).is_err());
+        assert!(params::<HttpUpdateDeriveParams>(quote! { (Id, UpdateQuery, Item, FindQuery) }).is_err());
     }
 
     #[test]
@@ -374,12 +381,7 @@ mod tests {
     }
 
     fn restful_info(args: proc_macro2::TokenStream) -> darling::Result<RestfulInfo> {
-        let attr: syn::Attribute = syn::parse_quote! { #[octopux_info(#args)] };
-        let meta = attr.parse_meta().unwrap();
-        match meta {
-            syn::Meta::List(list) => RestfulInfo::from_list(&list.nested.into_iter().collect::<Vec<_>>()),
-            _ => unreachable!(),
-        }
+        RestfulInfo::from_list(&NestedMeta::parse_meta_list(args).unwrap())
     }
 
     #[test]

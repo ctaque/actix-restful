@@ -84,14 +84,14 @@ struct Config {
 }
 
 fn find_attr<'a>(ast: &'a syn::DeriveInput, name: &str) -> Option<&'a syn::Attribute> {
-    ast.attrs.iter().find(|a| a.path.is_ident(name))
+    ast.attrs.iter().find(|a| a.path().is_ident(name))
 }
 
 fn parse_http_attr<T: syn::parse::Parse>(ast: &syn::DeriveInput, name: &str, derive: &str) -> syn::Result<T> {
     let attr = find_attr(ast, name).ok_or_else(|| {
         syn::Error::new_spanned(&ast.ident, format!("{} requires the #[{}(...)] attribute", derive, name))
     })?;
-    syn::parse2(attr.tokens.clone())
+    attr.parse_args()
 }
 
 // `default_table` gives the table when `table` is not set
@@ -99,14 +99,14 @@ fn parse_config(ast: &syn::DeriveInput, derive: &str, default_table: impl FnOnce
     let attr = find_attr(ast, "sqlx_model").ok_or_else(|| {
         syn::Error::new_spanned(&ast.ident, format!("{} requires the #[sqlx_model(database = \"...\")] attribute", derive))
     })?;
-    let meta = attr.parse_meta()?;
-    let args = SqlxModelArgs::from_meta(&meta).map_err(|e| syn::Error::new_spanned(&meta, e.to_string()))?;
+    let meta = &attr.meta;
+    let args = SqlxModelArgs::from_meta(meta).map_err(|e| syn::Error::new_spanned(meta, e.to_string()))?;
     let database = Database::parse(&args.database).ok_or_else(|| {
-        syn::Error::new_spanned(&meta, format!("unknown database `{}`, use sqlite, postgres or mysql", args.database))
+        syn::Error::new_spanned(meta, format!("unknown database `{}`, use sqlite, postgres or mysql", args.database))
     })?;
     let table = match args.table.clone().or_else(|| default_table(&args)) {
         Some(table) => table,
-        None => return Err(syn::Error::new_spanned(&meta, format!("{} requires `table` or `model`", derive))),
+        None => return Err(syn::Error::new_spanned(meta, format!("{} requires `table` or `model`", derive))),
     };
     let pool = syn::parse_str(args.pool.as_deref().unwrap_or("pool"))?;
     Ok(Config {
