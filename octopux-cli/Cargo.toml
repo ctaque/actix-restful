@@ -18,6 +18,8 @@ structopt.workspace = true
 chrono.workspace = true
 # Column types of the generated migrations, from the sqlx type of the fields
 sqlx = { workspace = true, features = ["mysql"] }
+# Runs the queries listing the tables of DATABASE_URL, proposed to the foreign keys
+tokio = { version = "1", features = ["rt", "net", "time"] }
 
 [[bin]]
 name = "octopux"

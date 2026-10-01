@@ -87,6 +87,15 @@ pub enum Opt {
         /// Creates the migration of the model table in the migrations folder next to src, requires --fields
         #[structopt(long = "migration", requires = "fields")]
         migration: bool,
+        /// Asks, for each field, for the table and the column it references, among the tables of the DATABASE_URL database
+        /// (the tables created by the migrations when it is not set) and the model itself, the migration declares the foreign keys,
+        /// requires --migration
+        #[structopt(long = "foreign-keys", requires = "migration")]
+        foreign_keys: bool,
+        /// Asks, for each field, whether its column is unique, the migration declares the unique constraints,
+        /// requires --migration
+        #[structopt(long = "unique", requires = "migration")]
+        unique: bool,
         /// Targets SQLite with the sqlx queries and the migration (the default)
         #[structopt(long = "sqlite", conflicts_with_all = &["postgres", "mysql"])]
         sqlite: bool,
@@ -263,11 +272,41 @@ const OPENAPI_DERIVES: &str = ", JsonSchema, ApiComponent";
 // Columns added by --timestamps, all nullable, `updated_at` is also part of the updatable struct
 const TIMESTAMP_COLUMNS: [&str; 3] = ["created_at", "updated_at", "deleted_at"];
 const TIMESTAMP_TYPE: &str = "Option<DateTime<Utc>>";
+// Type behind the `Id` alias of the generated model
+const ID_TYPE: &str = "i64";
 
 #[derive(Debug, PartialEq)]
 struct Field {
     name: String,
     ty: String,
+    // foreign key of the column, added to the migration
+    references: Option<Reference>,
+    // unique constraint of the column, added to the migration
+    unique: bool,
+    // length of a VARCHAR column, the one of the dialect when None
+    length: Option<u32>,
+}
+
+// Column referenced by a foreign key
+#[derive(Debug, Clone, PartialEq)]
+struct Reference {
+    table: String,
+    column: String,
+}
+
+// Table created by a migration, proposed as the target of the foreign keys
+#[derive(Debug, Clone, PartialEq)]
+struct Table {
+    name: String,
+    columns: Vec<Column>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct Column {
+    name: String,
+    sql_type: String,
+    // primary key or unique, which the databases require for a referenced column
+    unique: bool,
 }
 
 // Types proposed when prompting for a field type, the first one is the default
@@ -335,8 +374,9 @@ fn to_snake_case(name: &str) -> String {
     snake
 }
 
+// Asks `message` after a blank line, which spaces the prompts out
 fn prompt<R: BufRead, W: Write>(input: &mut R, output: &mut W, message: &str) -> Result<Option<String>, Error> {
-    write!(output, "{}", message)?;
+    write!(output, "\n{}", message)?;
     output.flush()?;
     let mut line = String::new();
     if input.read_line(&mut line)? == 0 {
@@ -347,20 +387,24 @@ fn prompt<R: BufRead, W: Write>(input: &mut R, output: &mut W, message: &str) ->
 
 // Asks for field names and types until an empty name (or end of input) is entered,
 // `timestamps` reserves the `created_at`, `updated_at` and `deleted_at` names,
-// with a `dialect`, only accepts types with a column type in its database (see `Dialect::sql_types`)
+// with a `dialect`, only accepts types with a column type in its database (see `Dialect::sql_types`),
+// with `tables` (the model table and the tables of the migrations), asks for the column each field references,
+// with `unique`, asks whether the column of each field is unique
 fn read_fields<R: BufRead, W: Write>(
     input: &mut R,
     output: &mut W,
     timestamps: bool,
     dialect: Option<Dialect>,
+    tables: Option<(&str, &[Table])>,
+    unique: bool,
 ) -> Result<Vec<Field>, Error> {
     let mut fields: Vec<Field> = Vec::new();
     let reserved: &[&str] = if timestamps { &["id", "created_at", "updated_at", "deleted_at"] } else { &["id"] };
     writeln!(output, "{}", bold("Model fields"))?;
     if timestamps {
-        writeln!(output, "{}", highlight("Enter the model fields (empty name to finish), `id: Id`, `created_at`, `updated_at` and `deleted_at` are already declared"))?;
+        writeln!(output, "{}", highlight(&format!("Enter the model fields (empty name to finish), `id: Id` ({}), `created_at`, `updated_at` and `deleted_at` are already declared", ID_TYPE)))?;
     } else {
-        writeln!(output, "{}", highlight("Enter the model fields (empty name to finish), `id: Id` is already declared"))?;
+        writeln!(output, "{}", highlight(&format!("Enter the model fields (empty name to finish), `id: Id` ({}) is already declared", ID_TYPE)))?;
     }
     writeln!(output, "{}", highlight("Wrap a type in `Option<T>` (e.g. `Option<i32>`) to make the field optional, its column is then nullable"))?;
     writeln!(output, "{}", dim(&highlight("Tips: `name:type` skips the type question (`stars:i32`, `stars:2`), a trailing `?` makes the type optional (`2?`), `-` removes the last field")))?;
@@ -420,13 +464,70 @@ fn read_fields<R: BufRead, W: Write>(
                 }
             }
         };
-        writeln!(output, "  {} {}", green("✔"), field_line(&name, &ty, 0))?;
-        fields.push(Field { name, ty });
+        let length = match dialect.and_then(|d| d.sql_column_type(&ty)).and_then(|(sql, _)| varchar_length(sql)) {
+            // None for the length of the dialect
+            Some(default) => Some(read_length(input, output, &name, dialect.unwrap_or(Dialect::Sqlite), default)?).filter(|l| *l != default),
+            None => None,
+        };
+        let column = dialect.and_then(|d| d.column_type(&ty, length));
+        let references = match tables {
+            Some((own, existing)) => {
+                // the model can reference itself (a `parent_id`), with the fields declared so far
+                let mut candidates: Vec<Table> = existing.iter().filter(|t| t.name != own).cloned().collect();
+                candidates.push(model_table(own, &fields, dialect));
+                read_reference(input, output, &name, column.as_deref(), dialect, own, &candidates)?
+            }
+            None => None,
+        };
+        let unique = unique && read_unique(input, output, &name, column.as_deref(), dialect)?;
+        let field = Field { name, ty, references, unique, length };
+        writeln!(output, "  {} {}", green("✔"), field_line(&field, 0))?;
+        fields.push(field);
     }
     if !fields.is_empty() {
         writeln!(output, "{}", fields_summary(&fields, timestamps))?;
     }
     Ok(fields)
+}
+
+// The length of a `VARCHAR(n)` column type
+fn varchar_length(sql: &str) -> Option<u32> {
+    sql.strip_prefix("VARCHAR(")?.strip_suffix(')')?.parse().ok()
+}
+
+// Asks for the length of the VARCHAR column of the field `name`, `default` when empty
+fn read_length<R: BufRead, W: Write>(input: &mut R, output: &mut W, name: &str, dialect: Dialect, default: u32) -> Result<u32, Error> {
+    let max = dialect.max_varchar_length();
+    loop {
+        let message = format!(
+            "{} {} {} ",
+            cyan("?"),
+            bold(&format!("Length of {} ›", cyan(&format!("`{}`", name)))),
+            dim(&format!("(VARCHAR, 1 to {}) [{}]", max, default))
+        );
+        let answer = match prompt(input, output, &message)? {
+            Some(answer) if !answer.is_empty() => answer,
+            _ => return Ok(default),
+        };
+        match answer.parse::<u32>() {
+            Ok(length) if (1..=max).contains(&length) => return Ok(length),
+            _ => writeln!(output, "{}", failure(&format!("`{}` is not a {} VARCHAR length, pick 1 to {}", answer, dialect.name(), max)))?,
+        }
+    }
+}
+
+// Asks whether the `column` of the field `name` is unique, no by default,
+// warns when MySQL refuses a unique index on its column type
+fn read_unique<R: BufRead, W: Write>(input: &mut R, output: &mut W, name: &str, column: Option<&str>, dialect: Option<Dialect>) -> Result<bool, Error> {
+    let message = format!("{} {} {} ", cyan("?"), bold(&format!("Is {} unique ›", cyan(&format!("`{}`", name)))), dim("(y/N)"));
+    let answer = prompt(input, output, &message)?.unwrap_or_default().to_lowercase();
+    let unique = matches!(answer.as_str(), "y" | "yes");
+    if let (true, Some(Dialect::Mysql), Some(sql)) = (unique, dialect, column) {
+        if sql.ends_with("BLOB") || sql.ends_with("TEXT") {
+            writeln!(output, "{}", warning(&format!("MySQL refuses a unique index on the {} column `{}` without a key length, `-` removes the field", sql, name)))?;
+        }
+    }
+    Ok(unique)
 }
 
 // The type of a type answer (see `parse_field_type`), or why it is refused,
@@ -444,10 +545,360 @@ fn check_field_type(answer: &str, dialect: Option<Dialect>) -> Result<String, St
     }
 }
 
-// `name: Type`, the name padded to `width`, optional types flagged as nullable
-fn field_line(name: &str, ty: &str, width: usize) -> String {
-    let nullable = if ty.starts_with("Option<") { dim(" (nullable)") } else { String::new() };
-    format!("{}: {}{}", bold(&format!("{:<width$}", name, width = width)), yellow(ty), nullable)
+// `name: Type`, the name padded to `width`, optional types flagged as nullable and unique columns as unique, followed by the referenced column
+fn field_line(field: &Field, width: usize) -> String {
+    let nullable = if field.ty.starts_with("Option<") { dim(" (nullable)") } else { String::new() };
+    let unique = if field.unique { dim(" (unique)") } else { String::new() };
+    let length = field.length.map_or(String::new(), |l| dim(&format!(" (length {})", l)));
+    let references = match &field.references {
+        Some(r) => format!(" {} {}", dim("→"), magenta(&format!("{} ({})", r.table, r.column))),
+        None => String::new(),
+    };
+    format!("{}: {}{}{}{}{}", bold(&format!("{:<width$}", field.name, width = width)), yellow(&field.ty), length, nullable, unique, references)
+}
+
+// The table of the model being generated, with its `id` and the fields declared so far
+fn model_table(name: &str, fields: &[Field], dialect: Option<Dialect>) -> Table {
+    let sql_type = |f: &Field| dialect.and_then(|d| d.column_type(&f.ty, f.length)).unwrap_or_default();
+    let id_type = dialect.map_or(String::new(), |d| d.id_column().split_whitespace().nth(1).unwrap_or_default().to_string());
+    let id = Column { name: "id".to_string(), sql_type: id_type, unique: true };
+    let columns = fields.iter().map(|f| Column { name: f.name.clone(), sql_type: sql_type(f), unique: f.unique });
+    Table { name: name.to_string(), columns: std::iter::once(id).chain(columns).collect() }
+}
+
+// The item of `items` picked by its number in the menu or by its name
+fn pick<'a, T>(items: &'a [T], answer: &str, name: impl Fn(&T) -> &str) -> Option<&'a T> {
+    match answer.parse::<usize>() {
+        Ok(n) => items.get(n.wrapping_sub(1)),
+        Err(_) => items.iter().find(|item| name(item).eq_ignore_ascii_case(answer)),
+    }
+}
+
+fn menu<T>(items: &[T], label: impl Fn(&T) -> String) -> String {
+    items
+        .iter()
+        .enumerate()
+        .map(|(i, item)| format!("{} {}", magenta(&format!("{})", i + 1)), label(item)))
+        .collect::<Vec<_>>()
+        .join("  ")
+}
+
+// Asks for the table and the column referenced by the field `name` of column type `sql`, None when it references nothing,
+// warns when the column is not unique or not of the type of the field, which the databases refuse
+fn read_reference<R: BufRead, W: Write>(
+    input: &mut R,
+    output: &mut W,
+    name: &str,
+    sql: Option<&str>,
+    dialect: Option<Dialect>,
+    own: &str,
+    tables: &[Table],
+) -> Result<Option<Reference>, Error> {
+    let tables_menu = menu(tables, |t| if t.name == own { format!("{} {}", t.name, dim("(this model)")) } else { t.name.clone() });
+    writeln!(output, "  {}", tables_menu)?;
+    let table = loop {
+        let message = format!(
+            "{} {} {} ",
+            cyan("?"),
+            bold(&format!("Table referenced by {} ›", cyan(&format!("`{}`", name)))),
+            dim("(number or name, empty for none)")
+        );
+        let answer = prompt(input, output, &message)?.unwrap_or_default();
+        if answer.is_empty() {
+            return Ok(None);
+        }
+        match pick(tables, &answer, |t| &t.name) {
+            Some(table) => break table,
+            None => {
+                writeln!(output, "{}", failure(&format!("`{}` is not a known table, pick 1 to {}", answer, tables.len())))?;
+                writeln!(output, "  {}", tables_menu)?;
+            }
+        }
+    };
+    // the primary key by default
+    let Some(default) = table.columns.iter().find(|c| c.unique).or(table.columns.first()) else {
+        writeln!(output, "{}", warning(&format!("Table `{}` has no column, `{}` references nothing", table.name, name)))?;
+        return Ok(None);
+    };
+    let columns_menu = menu(&table.columns, |c| {
+        let key = if c.unique { dim(" (unique)") } else { String::new() };
+        format!("{} {}{}", c.name, dim(&c.sql_type), key)
+    });
+    writeln!(output, "  {}", columns_menu)?;
+    let column = loop {
+        let message = format!(
+            "{} {} {} ",
+            cyan("?"),
+            bold(&format!("Column of {} referenced by {} ›", cyan(&format!("`{}`", table.name)), cyan(&format!("`{}`", name)))),
+            dim(&format!("(number or name) [{}]", default.name))
+        );
+        let answer = prompt(input, output, &message)?.unwrap_or_default();
+        if answer.is_empty() {
+            break default;
+        }
+        match pick(&table.columns, &answer, |c| &c.name) {
+            Some(column) => break column,
+            None => {
+                writeln!(output, "{}", failure(&format!("`{}` is not a column of `{}`, pick 1 to {}", answer, table.name, table.columns.len())))?;
+                writeln!(output, "  {}", columns_menu)?;
+            }
+        }
+    };
+    let target = format!("{}.{}", table.name, column.name);
+    if !column.unique {
+        writeln!(output, "{}", warning(&format!("`{}` is neither a primary key nor unique, the database refuses the foreign key without a unique index on it", target)))?;
+    }
+    if let (Some(dialect), Some(sql)) = (dialect, sql) {
+        if !dialect.same_column_type(sql, &column.sql_type) {
+            writeln!(
+                output,
+                "{}",
+                warning(&format!("`{}` is {} and `{}` is {}, the foreign key may be refused, `-` removes the field", name, sql, target, column.sql_type))
+            )?;
+        }
+    }
+    Ok(Some(Reference { table: table.name.clone(), column: column.name.clone() }))
+}
+
+// Removes the comments, the quotes and the schema of an SQL name: `"public"."author"` gives `author`
+fn sql_name(name: &str) -> String {
+    let name = name.rsplit('.').next().unwrap_or(name);
+    name.trim_matches(|c| matches!(c, '"' | '`' | '[' | ']')).to_string()
+}
+
+// Splits on the commas outside parentheses, `DECIMAL(10, 2)` stays whole
+fn split_top_level(body: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let (mut depth, mut start) = (0, 0);
+    for (i, c) in body.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            ',' if depth == 0 => {
+                parts.push(body[start..i].trim());
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(body[start..].trim());
+    parts.into_iter().filter(|p| !p.is_empty()).collect()
+}
+
+// Keywords ending the type of a column definition
+const COLUMN_CONSTRAINTS: &[&str] = &[
+    "NOT", "NULL", "PRIMARY", "REFERENCES", "DEFAULT", "UNIQUE", "AUTO_INCREMENT", "AUTOINCREMENT", "CHECK", "CONSTRAINT", "GENERATED", "COLLATE",
+];
+
+// Columns of a CREATE TABLE body, the single column PRIMARY KEY and UNIQUE table constraints mark their column unique
+fn parse_columns(body: &str) -> Vec<Column> {
+    let mut columns = Vec::new();
+    let mut unique_keys = Vec::new();
+    for definition in split_top_level(body) {
+        let upper = definition.to_ascii_uppercase();
+        let words: Vec<&str> = definition.split_whitespace().collect();
+        let first = upper.split_whitespace().next().unwrap_or_default();
+        if ["CONSTRAINT", "PRIMARY", "UNIQUE", "FOREIGN", "CHECK", "KEY", "INDEX"].contains(&first) {
+            let unique = (upper.contains("PRIMARY KEY") || upper.contains("UNIQUE")) && !upper.contains("FOREIGN KEY");
+            if let (true, Some(open), Some(close)) = (unique, definition.find('('), definition.find(')')) {
+                let keys: Vec<&str> = definition[open + 1..close].split(',').collect();
+                if let [key] = keys.as_slice() {
+                    unique_keys.push(sql_name(key.trim()));
+                }
+            }
+            continue;
+        }
+        let sql_type: Vec<&str> = words[1..]
+            .iter()
+            .take_while(|w| !COLUMN_CONSTRAINTS.contains(&w.to_ascii_uppercase().as_str()))
+            .copied()
+            .collect();
+        let unique = upper.contains("PRIMARY KEY") || upper.split_whitespace().any(|w| w == "UNIQUE");
+        columns.push(Column { name: sql_name(words[0]), sql_type: sql_type.join(" "), unique });
+    }
+    for column in columns.iter_mut() {
+        column.unique |= unique_keys.contains(&column.name);
+    }
+    columns
+}
+
+// Tables created by the CREATE TABLE statements of a migration
+fn parse_tables(sql: &str) -> Vec<Table> {
+    let sql = sql.lines().map(|line| line.split("--").next().unwrap_or_default()).collect::<Vec<_>>().join("\n");
+    // same byte offsets as `sql`
+    let upper = sql.to_ascii_uppercase();
+    let mut tables = Vec::new();
+    let mut rest = 0;
+    while let Some(start) = upper[rest..].find("CREATE TABLE") {
+        let mut pos = rest + start + "CREATE TABLE".len();
+        pos += upper[pos..].len() - upper[pos..].trim_start().len();
+        if upper[pos..].starts_with("IF NOT EXISTS") {
+            pos += "IF NOT EXISTS".len();
+        }
+        let Some(open) = sql[pos..].find('(').map(|i| pos + i) else { break };
+        let mut depth = 0;
+        let close = sql[open..].char_indices().find_map(|(i, c)| {
+            match c {
+                '(' => depth += 1,
+                ')' => depth -= 1,
+                _ => {}
+            }
+            (depth == 0).then_some(open + i)
+        });
+        let Some(close) = close else { break };
+        tables.push(Table { name: sql_name(sql[pos..open].trim()), columns: parse_columns(&sql[open + 1..close]) });
+        rest = close;
+    }
+    tables
+}
+
+// Tables created by the migrations of `dir`, in the order of the migrations,
+// a table created by several migrations keeps its first definition, which `IF NOT EXISTS` applies
+fn migration_tables(dir: &Path) -> Vec<Table> {
+    let Ok(entries) = fs::read_dir(dir) else { return Vec::new() };
+    let mut paths: Vec<PathBuf> = entries
+        .filter_map(|entry| entry.ok().map(|e| e.path()))
+        .filter(|path| path.extension().map_or(false, |e| e == "sql") && !path.to_string_lossy().ends_with(".down.sql"))
+        .collect();
+    paths.sort();
+    let mut tables: Vec<Table> = Vec::new();
+    for path in paths {
+        let Ok(sql) = fs::read_to_string(&path) else { continue };
+        for table in parse_tables(&sql) {
+            if !tables.iter().any(|t| t.name == table.name) {
+                tables.push(table);
+            }
+        }
+    }
+    tables
+}
+
+// Database of a connection url, from its scheme
+fn url_dialect(url: &str) -> Option<Dialect> {
+    match url.split(':').next()? {
+        "sqlite" => Some(Dialect::Sqlite),
+        "postgres" | "postgresql" => Some(Dialect::Postgres),
+        "mysql" | "mariadb" => Some(Dialect::Mysql),
+        _ => None,
+    }
+}
+
+// Table of the sqlx migrations, not a model to reference
+const SQLX_MIGRATIONS_TABLE: &str = "_sqlx_migrations";
+
+// Columns of the current schema, with their udt name (`int8`, `_text` for an array of text)
+// and whether a single column primary key or unique constraint covers them
+const POSTGRES_COLUMNS: &str = "SELECT c.table_name::text, c.column_name::text, c.udt_name::text,
+    EXISTS (
+        SELECT 1 FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage k
+            ON k.constraint_schema = tc.constraint_schema AND k.constraint_name = tc.constraint_name
+        WHERE tc.table_schema = c.table_schema AND tc.table_name = c.table_name AND k.column_name = c.column_name
+            AND tc.constraint_type IN ('PRIMARY KEY', 'UNIQUE')
+            AND (SELECT count(*) FROM information_schema.key_column_usage k2
+                 WHERE k2.constraint_schema = tc.constraint_schema AND k2.constraint_name = tc.constraint_name) = 1
+    )
+FROM information_schema.columns c
+JOIN information_schema.tables t ON t.table_schema = c.table_schema AND t.table_name = c.table_name
+WHERE c.table_schema = current_schema() AND t.table_type = 'BASE TABLE' AND c.table_name <> '_sqlx_migrations'
+ORDER BY c.table_name, c.ordinal_position";
+
+// information_schema columns are cast, MySQL 8 returns some of them as binary strings
+const MYSQL_COLUMNS: &str = "SELECT CAST(c.TABLE_NAME AS CHAR), CAST(c.COLUMN_NAME AS CHAR), CAST(c.COLUMN_TYPE AS CHAR),
+    CAST(c.COLUMN_KEY IN ('PRI', 'UNI') AS SIGNED)
+FROM information_schema.COLUMNS c
+JOIN information_schema.TABLES t ON t.TABLE_SCHEMA = c.TABLE_SCHEMA AND t.TABLE_NAME = c.TABLE_NAME
+WHERE c.TABLE_SCHEMA = DATABASE() AND t.TABLE_TYPE = 'BASE TABLE' AND c.TABLE_NAME <> '_sqlx_migrations'
+ORDER BY c.TABLE_NAME, c.ORDINAL_POSITION";
+
+// Groups the (table, column) rows, ordered by table, into tables
+fn group_columns(rows: impl IntoIterator<Item = (String, Column)>) -> Vec<Table> {
+    let mut tables: Vec<Table> = Vec::new();
+    for (table, column) in rows {
+        match tables.last_mut() {
+            Some(last) if last.name == table => last.columns.push(column),
+            _ => tables.push(Table { name: table, columns: vec![column] }),
+        }
+    }
+    tables
+}
+
+// `int8` gives `INT8`, the `_text` arrays `TEXT[]`, as sqlx names the column types
+fn postgres_column_type(udt: &str) -> String {
+    match udt.strip_prefix('_') {
+        Some(element) => format!("{}[]", element.to_uppercase()),
+        None => udt.to_uppercase(),
+    }
+}
+
+// Tables of the database of `url`, read without writing anything,
+// a relative SQLite file is looked up from `root`, the crate root, when missing from the working directory
+async fn database_tables(url: &str, root: &Path) -> Result<Vec<Table>, String> {
+    use sqlx::Connection;
+    let error = |e: sqlx::Error| e.to_string();
+    match url_dialect(url) {
+        Some(Dialect::Sqlite) => {
+            use std::str::FromStr;
+            let mut options = sqlx::sqlite::SqliteConnectOptions::from_str(url).map_err(error)?;
+            let file = options.get_filename().to_path_buf();
+            if file.is_relative() && !file.exists() && root.join(&file).exists() {
+                options = options.filename(root.join(&file));
+            }
+            let mut conn = sqlx::SqliteConnection::connect_with(&options.read_only(true).create_if_missing(false)).await.map_err(error)?;
+            // the CREATE TABLE statements, as for the migrations
+            let statements: Vec<Option<String>> = sqlx::query_scalar(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name <> $1 ORDER BY name",
+            )
+            .bind(SQLX_MIGRATIONS_TABLE)
+            .fetch_all(&mut conn)
+            .await
+            .map_err(error)?;
+            Ok(statements.iter().flatten().flat_map(|sql| parse_tables(sql)).collect())
+        }
+        Some(Dialect::Postgres) => {
+            let mut conn = sqlx::PgConnection::connect(url).await.map_err(error)?;
+            let rows: Vec<(String, String, String, bool)> = sqlx::query_as(POSTGRES_COLUMNS).fetch_all(&mut conn).await.map_err(error)?;
+            Ok(group_columns(rows.into_iter().map(|(table, name, udt, unique)| {
+                (table, Column { name, sql_type: postgres_column_type(&udt), unique })
+            })))
+        }
+        Some(Dialect::Mysql) => {
+            let mut conn = sqlx::MySqlConnection::connect(url).await.map_err(error)?;
+            let rows: Vec<(String, String, String, i64)> = sqlx::query_as(MYSQL_COLUMNS).fetch_all(&mut conn).await.map_err(error)?;
+            Ok(group_columns(rows.into_iter().map(|(table, name, ty, key)| {
+                (table, Column { name, sql_type: ty.to_uppercase(), unique: key != 0 })
+            })))
+        }
+        None => Err("unsupported scheme, use sqlite:, postgres: or mysql:".to_string()),
+    }
+}
+
+// Tables proposed to the foreign keys: those of the DATABASE_URL database when it is set and reachable,
+// those created by the migrations otherwise
+fn known_tables(dialect: Dialect) -> Result<Vec<Table>, Error> {
+    let cwd = std::env::current_dir()?;
+    let migrations = migrations_dir(&cwd);
+    let root = migrations.parent().map_or(PathBuf::new(), Path::to_path_buf);
+    if let Ok(url) = std::env::var("DATABASE_URL") {
+        if let Some(db) = url_dialect(&url).filter(|db| *db != dialect) {
+            println!("{}", warning(&format!("`DATABASE_URL` is a {} database and the migration targets {}", db.name(), dialect.name())));
+        }
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+        match runtime.block_on(database_tables(&url, &root)) {
+            Ok(tables) => {
+                println!("{}", success(&format!("{} table{} read from `DATABASE_URL`", tables.len(), if tables.len() > 1 { "s" } else { "" })));
+                return Ok(tables);
+            }
+            Err(e) => println!("{}", warning(&format!("Tables of `DATABASE_URL` not read ({}), the migrations are read instead", e))),
+        }
+    }
+    let tables = migration_tables(&migrations);
+    if tables.is_empty() {
+        println!("{}", warning(&format!("No table in {}, the fields can only reference the model itself", migrations.display())));
+    } else {
+        println!("{}", success(&format!("{} table{} read from {}", tables.len(), if tables.len() > 1 { "s" } else { "" }, migrations.display())));
+    }
+    Ok(tables)
 }
 
 // Recap of the declared fields, with the `id` and the timestamps declared by the CLI dimmed
@@ -457,8 +908,8 @@ fn fields_summary(fields: &[Field], timestamps: bool) -> String {
         .collect();
     let width = fields.iter().map(|f| f.name.len()).chain(declared.iter().map(|(n, _)| n.len())).max().unwrap_or(0);
     let mut lines = vec![format!("\n{}", bold(&format!("{} field{} declared", fields.len(), if fields.len() > 1 { "s" } else { "" })))];
-    lines.push(format!("  {}", dim(&format!("{:<width$}: {}", "id", "Id", width = width))));
-    lines.extend(fields.iter().map(|f| format!("  {}", field_line(&f.name, &f.ty, width))));
+    lines.push(format!("  {}", dim(&format!("{:<width$}: Id ({})", "id", ID_TYPE, width = width))));
+    lines.extend(fields.iter().map(|f| format!("  {}", field_line(f, width))));
     lines.extend(declared.iter().skip(1).map(|(n, ty)| format!("  {}", dim(&format!("{:<width$}: {}", n, ty, width = width)))));
     lines.join("\n") + "\n"
 }
@@ -513,14 +964,28 @@ fn sqlite_types() -> Vec<(&'static str, String)> {
     )
 }
 
+// Replaces the column types sqlx declares by the ones of `overrides`
+fn with_overrides(mut types: Vec<(&'static str, String)>, overrides: &[(&str, &str)]) -> Vec<(&'static str, String)> {
+    for (ty, sql) in types.iter_mut() {
+        if let Some((_, over)) = overrides.iter().find(|(t, _)| t == ty) {
+            *sql = over.to_string();
+        }
+    }
+    types
+}
+
+// Strings are bounded as for MySQL, where sqlx declares an unbounded TEXT
+const POSTGRES_OVERRIDES: &[(&str, &str)] = &[("String", "VARCHAR(255)")];
+
 // PostgreSQL has no unsigned integers and sqlx maps i8 to "char", Vec<T> are arrays
 fn postgres_types() -> Vec<(&'static str, String)> {
-    sql_types!(sqlx::Postgres;
+    let types = sql_types!(sqlx::Postgres;
         String, i16, i32, i64, f32, f64, bool,
         DateTime<Utc>, NaiveDateTime, NaiveDate, NaiveTime, Vec<u8>,
         Vec<String>, Vec<i16>, Vec<i32>, Vec<i64>, Vec<f32>, Vec<f64>, Vec<bool>,
         Vec<DateTime<Utc>>, Vec<NaiveDateTime>, Vec<NaiveDate>, Vec<NaiveTime>, Vec<Vec<u8>>,
-    )
+    );
+    with_overrides(types, POSTGRES_OVERRIDES)
 }
 
 // sqlx names a VARCHAR without its length, which is not a valid column type.
@@ -535,16 +1000,11 @@ const MYSQL_OVERRIDES: &[(&str, &str)] = &[
 ];
 
 fn mysql_types() -> Vec<(&'static str, String)> {
-    let mut types = sql_types!(sqlx::MySql;
+    let types = sql_types!(sqlx::MySql;
         String, i8, i16, i32, i64, u8, u16, u32, u64, f32, f64, bool,
         DateTime<Utc>, NaiveDateTime, NaiveDate, NaiveTime, Vec<u8>,
     );
-    for (ty, sql) in types.iter_mut() {
-        if let Some((_, over)) = MYSQL_OVERRIDES.iter().find(|(t, _)| t == ty) {
-            *sql = over.to_string();
-        }
-    }
-    types
+    with_overrides(types, MYSQL_OVERRIDES)
 }
 
 impl Dialect {
@@ -600,7 +1060,52 @@ impl Dialect {
         }
     }
 
+    // The column type of a field type, `length` replacing the one of a VARCHAR
+    fn column_type(self, ty: &str, length: Option<u32>) -> Option<String> {
+        self.sql_column_type(ty).map(|(sql, _)| self.with_length(sql, length))
+    }
+
+    fn with_length(self, sql: &str, length: Option<u32>) -> String {
+        match (varchar_length(sql), length) {
+            (Some(_), Some(length)) => format!("VARCHAR({})", length),
+            _ => sql.to_string(),
+        }
+    }
+
+    // PostgreSQL limits a VARCHAR to 10485760 characters, MySQL to 65535 bytes in a row,
+    // 16383 characters of utf8mb4
+    fn max_varchar_length(self) -> u32 {
+        match self {
+            Dialect::Mysql => 16383,
+            _ => 10_485_760,
+        }
+    }
+
     // `$1, $2...` for SQLite and PostgreSQL, `?` for MySQL
+    // Whether a column of type `a` can reference a column of type `b`, after the aliases of the database,
+    // SQLite does not check the types of the foreign keys
+    fn same_column_type(self, a: &str, b: &str) -> bool {
+        let canonical = |sql: &str| {
+            let sql = sql.split_whitespace().collect::<Vec<_>>().join(" ").to_ascii_uppercase();
+            let alias = match (self, sql.as_str()) {
+                (Dialect::Postgres, "BIGSERIAL" | "SERIAL8" | "BIGINT") => "INT8",
+                (Dialect::Postgres, "SERIAL" | "SERIAL4" | "INTEGER" | "INT") => "INT4",
+                (Dialect::Postgres, "SMALLSERIAL" | "SERIAL2" | "SMALLINT") => "INT2",
+                (Dialect::Postgres, "DOUBLE PRECISION") => "FLOAT8",
+                (Dialect::Postgres, "REAL") => "FLOAT4",
+                (Dialect::Postgres, "BOOLEAN") => "BOOL",
+                (Dialect::Postgres, "TIMESTAMP WITH TIME ZONE") => "TIMESTAMPTZ",
+                // a VARCHAR, of any length, can reference a TEXT
+                (Dialect::Postgres, s) if s == "TEXT" || s.starts_with("VARCHAR") || s.starts_with("CHARACTER VARYING") => "TEXT",
+                (Dialect::Mysql, "INTEGER") => "INT",
+                (Dialect::Mysql, "BOOL" | "TINYINT(1)") => "BOOLEAN",
+                _ => return sql,
+            };
+            alias.to_string()
+        };
+        self == Dialect::Sqlite || canonical(a) == canonical(b)
+    }
+
     fn placeholders(self, count: usize) -> Vec<String> {
         match self {
             Dialect::Mysql => vec!["?".to_string(); count],
@@ -626,7 +1131,7 @@ fn render_migration(name: &str, fields: &[Field], timestamps: bool, dialect: Dia
     let mut columns = vec![dialect.id_column().to_string()];
     let mut unmapped = Vec::new();
     for field in fields {
-        match dialect.sql_column_type(&field.ty) {
+        match dialect.sql_column_type(&field.ty).map(|(sql, not_null)| (dialect.with_length(sql, field.length), not_null)) {
             Some((sql, true)) => columns.push(format!("{} {} NOT NULL", field.name, sql)),
             Some((sql, false)) => columns.push(format!("{} {}", field.name, sql)),
             None => unmapped.push(format!("{}: {}", field.name, field.ty)),
@@ -640,6 +1145,11 @@ fn render_migration(name: &str, fields: &[Field], timestamps: bool, dialect: Dia
         let sql = dialect.sql_type("DateTime<Utc>").unwrap_or_default();
         columns.extend(TIMESTAMP_COLUMNS.map(|c| format!("{} {}", c, sql)));
     }
+    // table constraints, the inline REFERENCES are ignored by MySQL
+    columns.extend(fields.iter().filter(|f| f.unique).map(|f| format!("UNIQUE ({})", f.name)));
+    columns.extend(fields.iter().filter_map(|f| {
+        f.references.as_ref().map(|r| format!("FOREIGN KEY ({}) REFERENCES {} ({})", f.name, r.table, r.column))
+    }));
     Ok(format!(
         "CREATE TABLE IF NOT EXISTS {} (\n    {}\n);\n",
         name.to_lowercase(),
@@ -707,15 +1217,46 @@ fn refuse_overwrite(path: &str, force: bool, what: &str) {
     }
 }
 
-// Writes `<timestamp>_<suffix>.sql` in the migrations folder next to src
-fn write_migration(suffix: &str, sql: &str) -> Result<(), Error> {
+// `file` in the src folder of the working directory when it exists, in the working directory otherwise
+fn source_path(cwd: &Path, file: &str) -> String {
+    if cwd.join("src").is_dir() { format!("src/{}", file) } else { file.to_string() }
+}
+
+// `<timestamp>_<suffix>.sql` in the migrations folder next to src
+fn migration_path(suffix: &str) -> Result<PathBuf, Error> {
     let secs = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
-    let dir = migrations_dir(&std::env::current_dir()?);
-    fs::create_dir_all(&dir)?;
-    let path = dir.join(format!("{}_{}.sql", migration_timestamp(secs), suffix)).display().to_string();
-    fs::write(&path, with_header("--", sql))?;
-    println!("{}", success(&format!("Successfully generated migration {}", path)));
+    Ok(migrations_dir(&std::env::current_dir()?).join(format!("{}_{}.sql", migration_timestamp(secs), suffix)))
+}
+
+// Writes the migration at `path` (see `migration_path`), creating the migrations folder
+fn write_migration(path: &Path, sql: &str) -> Result<(), Error> {
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    fs::write(path, with_header("--", sql))?;
+    println!("{}", success(&format!("Successfully generated migration {}", path.display())));
     Ok(())
+}
+
+// Recap of the files about to be written, each with whether it overwrites an existing file
+fn changes_summary(files: &[(String, bool)]) -> String {
+    let mut lines = vec![bold(&format!("{} file{} to write", files.len(), if files.len() > 1 { "s" } else { "" }))];
+    lines.extend(files.iter().map(|(path, overwrites)| {
+        if *overwrites {
+            format!("  {} {} {}", yellow("~"), path, yellow("(overwritten)"))
+        } else {
+            format!("  {} {}", green("+"), path)
+        }
+    }));
+    lines.join("\n")
+}
+
+// Shows the recap of the files and asks for saving them, only an explicit no refuses,
+// so that a session is not lost on an empty answer, and the fields can still be piped
+fn confirm_save<R: BufRead, W: Write>(input: &mut R, output: &mut W, files: &[(String, bool)]) -> Result<bool, Error> {
+    writeln!(output, "{}", changes_summary(files))?;
+    let answer = prompt(input, output, &format!("{} {} {} ", cyan("?"), bold("Save the changes?"), dim("(Y/n)")))?;
+    Ok(!matches!(answer.as_deref().map(str::to_lowercase).as_deref(), Some("n" | "no")))
 }
 
 // UTC timestamp prefixing the sqlx migrations, as YYYYMMDDHHMMSS
@@ -810,7 +1351,7 @@ fn render_model(name: &str, openapi: bool, sqlx: bool, timestamps: bool, fields:
     let new_fields = if fields.is_empty() { "\n" } else { &field_lines };
     let chrono_imports = chrono_imports(fields, timestamps);
     let (model_fields, updatable_fields) = if timestamps {
-        let timestamp = |name: &str| Field { name: name.to_string(), ty: TIMESTAMP_TYPE.to_string() };
+        let timestamp = |name: &str| Field { name: name.to_string(), ty: TIMESTAMP_TYPE.to_string(), references: None, unique: false, length: None };
         (
             field_lines.clone() + &struct_fields(&TIMESTAMP_COLUMNS.map(timestamp)),
             field_lines.clone() + &struct_fields(&[timestamp("updated_at")]),
@@ -856,6 +1397,7 @@ fn render_model(name: &str, openapi: bool, sqlx: bool, timestamps: bool, fields:
         .replace("{openapi_imports}", imports)
         .replace("{openapi_derives}", derives)
         .replace("{openapi_configure}", configure)
+        .replace("{id_type}", ID_TYPE)
         .replace("{entity}", name)
         .replace("{entity_lower_case}", &name.to_lowercase())
 }
@@ -928,7 +1470,7 @@ const MODEL_TPL: &str = r#"
     pub struct SaveQuery {}
     #[derive(Deserialize{openapi_derives})]
     pub struct UpdateQuery {}
-    pub type Id = i64;
+    pub type Id = {id_type};
 
     #[derive(Default, Serialize, Deserialize{openapi_derives}{model_derives})]
     #[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]{model_sqlx}
@@ -1204,7 +1746,7 @@ fn bootstrap<R: BufRead, W: Write>(root: &Path, openapi: bool, input: &mut R, ou
     println!(
         "{}",
         success(&format!(
-            "Successfully bootstrapped src/main.rs and src/helpers.rs, generate a model with `octopux generate-model --name <Model>{}` in src, then declare it with `mod <model>;` and mount it with `.configure(<model>::configure)` in the v1 scope of src/main.rs",
+            "Successfully bootstrapped src/main.rs and src/helpers.rs, generate a model with `octopux generate-model --name <Model>{}`, then declare it with `mod <model>;` and mount it with `.configure(<model>::configure)` in the v1 scope of src/main.rs",
             if openapi { " --openapi" } else { "" }
         ))
     );
@@ -1283,15 +1825,19 @@ fn main() -> Result<(), Error> {
 
 fn run(opt: Opt) -> Result<(), Error> {
     match opt {
-        Opt::GenerateModel { name, openapi, fields, sqlx, migration, sqlite: _, postgres, mysql, timestamps, force } => {
+        Opt::GenerateModel { name, openapi, fields, sqlx, migration, foreign_keys, unique, sqlite: _, postgres, mysql, timestamps, force } => {
             let dialect = Dialect::from_flags(postgres, mysql);
             let module = to_snake_case(&name);
-            let path = format!("{}.rs", module);
+            let path = source_path(&std::env::current_dir()?, &format!("{}.rs", module));
             let overwrites = Path::new(&path).exists();
             refuse_overwrite(&path, force, &format!("model {}", name));
+            let fields_asked = fields;
             let fields = if fields {
                 let strict = if migration { Some(dialect) } else { None };
-                read_fields(&mut io::stdin().lock(), &mut io::stdout(), timestamps, strict)?
+                let tables = if foreign_keys { known_tables(dialect)? } else { Vec::new() };
+                let table = name.to_lowercase();
+                let references = foreign_keys.then_some((table.as_str(), tables.as_slice()));
+                read_fields(&mut io::stdin().lock(), &mut io::stdout(), timestamps, strict, references, unique)?
             } else {
                 Vec::new()
             };
@@ -1308,10 +1854,23 @@ fn run(opt: Opt) -> Result<(), Error> {
             } else {
                 None
             };
+            let migration = match sql {
+                Some(sql) => Some((migration_path(&format!("create_{}", name.to_lowercase()))?, sql)),
+                None => None,
+            };
+            // the fields were entered interactively, nothing is written before the recap is confirmed
+            if fields_asked {
+                let mut files = vec![(path.clone(), overwrites)];
+                files.extend(migration.iter().map(|(p, _)| (p.display().to_string(), false)));
+                if !confirm_save(&mut io::stdin().lock(), &mut io::stdout(), &files)? {
+                    eprintln!("{}", failure(&format!("Nothing saved, model {} not generated", name)));
+                    process::exit(1);
+                }
+            }
             fs::write(&path, with_header("//", &render_model(&name, openapi, sqlx, timestamps, &fields, dialect)))?;
             println!("{}", success(&format!("Successfully generated model {}, declare it with `mod {};`", path, module)));
-            if let Some(sql) = sql {
-                write_migration(&format!("create_{}", name.to_lowercase()), &sql)?;
+            if let Some((migration, sql)) = migration {
+                write_migration(&migration, &sql)?;
                 if overwrites {
                     println!(
                         "{}",
@@ -1330,7 +1889,7 @@ fn run(opt: Opt) -> Result<(), Error> {
                 process::exit(1);
             }
             let module = relation.module();
-            let path = format!("{}.rs", module);
+            let path = source_path(&std::env::current_dir()?, &format!("{}.rs", module));
             refuse_overwrite(&path, force, "relation");
             fs::write(&path, with_header("//", &render_relation(&relation, openapi, sqlx, timestamps, dialect)))?;
             println!(
@@ -1342,7 +1901,7 @@ fn run(opt: Opt) -> Result<(), Error> {
             );
             if migration {
                 let (table, column) = relation.foreign_key_column();
-                write_migration(&format!("index_{}_{}", table, column), &render_relation_migration(&relation, dialect))?;
+                write_migration(&migration_path(&format!("index_{}_{}", table, column))?, &render_relation_migration(&relation, dialect))?;
             }
             Ok(())
         }
@@ -1352,10 +1911,237 @@ fn run(opt: Opt) -> Result<(), Error> {
 #[cfg(test)]
 mod tests {
     use super::{
-        migration_timestamp, migrations_dir, parse_field_type, pluralize, read_fields, render_migration, render_model, render_relation, render_relation_migration, to_camel_case,
-        to_snake_case, bootstrap, bootstrap_dependencies, confirm, generated_header, Cli, Dialect, Field, Opt, Relation, Through, LOGO,
+        migration_timestamp, migrations_dir, source_path, parse_field_type, pluralize, read_fields, render_migration, render_model, render_relation, render_relation_migration, to_camel_case,
+        to_snake_case, bootstrap, bootstrap_dependencies, changes_summary, confirm, confirm_save, generated_header, migration_tables, parse_tables, postgres_column_type, url_dialect,
+        Cli, Column, Dialect, Field, Opt, Reference, Relation, Table, Through, LOGO,
     };
     use structopt::StructOpt;
+
+    fn field(name: &str, ty: &str) -> Field {
+        Field { name: name.into(), ty: ty.into(), references: None, unique: false, length: None }
+    }
+
+    fn column(name: &str, sql_type: &str, unique: bool) -> Column {
+        Column { name: name.into(), sql_type: sql_type.into(), unique }
+    }
+
+    fn author_table() -> Table {
+        Table { name: "author".into(), columns: vec![column("id", "INT8", true), column("email", "TEXT", true), column("name", "TEXT", false)] }
+    }
+
+    #[test]
+    fn parse_tables_reads_the_created_tables() {
+        let sql = super::with_header("--", "CREATE TABLE IF NOT EXISTS author (
+    id BIGSERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    score DOUBLE PRECISION,
+    price DECIMAL(10, 2) DEFAULT 0,
+    email VARCHAR(255) UNIQUE NOT NULL
+);
+create table \"Book\" (code TEXT, author_id INT8, PRIMARY KEY (code), FOREIGN KEY (author_id) REFERENCES author (id));
+CREATE INDEX book_idx ON book (code);
+");
+        assert_eq!(parse_tables(&sql), vec![
+            Table {
+                name: "author".into(),
+                columns: vec![
+                    column("id", "BIGSERIAL", true),
+                    column("name", "TEXT", false),
+                    column("score", "DOUBLE PRECISION", false),
+                    column("price", "DECIMAL(10, 2)", false),
+                    column("email", "VARCHAR(255)", true),
+                ],
+            },
+            Table { name: "Book".into(), columns: vec![column("code", "TEXT", true), column("author_id", "INT8", false)] },
+        ]);
+    }
+
+    #[test]
+    fn migration_tables_keep_the_first_definition_of_a_table() {
+        let dir = std::env::temp_dir().join(format!("octopux-migration-tables-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("2_create_book.sql"), "CREATE TABLE IF NOT EXISTS book (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL);").unwrap();
+        std::fs::write(dir.join("1_create_book.sql"), "CREATE TABLE IF NOT EXISTS book (id INTEGER PRIMARY KEY AUTOINCREMENT);").unwrap();
+        std::fs::write(dir.join("3_create_author.down.sql"), "CREATE TABLE author (id INTEGER);").unwrap();
+        let tables = migration_tables(&dir);
+        assert_eq!(tables, vec![Table { name: "book".into(), columns: vec![column("id", "INTEGER", true)] }]);
+        assert!(migration_tables(&dir.join("missing")).is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn read_fields_asks_for_the_referenced_table_and_column() {
+        let tables = [author_table()];
+        // table by number and default column, table and column by name, no reference, unknown table then self reference
+        let input = "author_id:i64\n1\n\nwriter_email\n\n100\nAUTHOR\nemail\ntitle\n\n\n\nparent_id:i64\nnope\n2\n\n\n";
+        let mut output = Vec::new();
+        let fields = read_fields(&mut input.as_bytes(), &mut output, false, Some(Dialect::Postgres), Some(("book", &tables)), false).unwrap();
+        let reference = |table: &str, column: &str| Some(Reference { table: table.into(), column: column.into() });
+        assert_eq!(fields, vec![
+            Field { references: reference("author", "id"), ..field("author_id", "i64") },
+            Field { references: reference("author", "email"), length: Some(100), ..field("writer_email", "String") },
+            field("title", "String"),
+            Field { references: reference("book", "id"), ..field("parent_id", "i64") },
+        ]);
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains("1) author  2) book (this model)"));
+        assert!(output.contains("1) id INT8 (unique)  2) email TEXT (unique)  3) name TEXT"));
+        assert!(output.contains("? Column of `author` referenced by `author_id` › (number or name) [id] "));
+        assert!(output.contains("`nope` is not a known table, pick 1 to 2"));
+        // the model table has its id and the fields declared before
+        assert!(output.contains("1) id BIGSERIAL (unique)  2) author_id INT8  3) writer_email VARCHAR(100)  4) title VARCHAR(255)"));
+        assert!(output.contains("writer_email: String (length 100) → author (email)"));
+        assert!(output.contains("author_id: i64 → author (id)"));
+        assert!(!output.contains("may be refused"));
+    }
+
+    #[test]
+    fn read_fields_warns_about_references_the_database_refuses() {
+        let tables = [author_table()];
+        let mut output = Vec::new();
+        let input = "author_id:i32\nauthor\n\nauthor_name:String\n\n1\nname\n\n";
+        let fields = read_fields(&mut input.as_bytes(), &mut output, false, Some(Dialect::Postgres), Some(("book", &tables)), false).unwrap();
+        assert_eq!(fields.len(), 2);
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains("`author_id` is INT4 and `author.id` is INT8, the foreign key may be refused"));
+        assert!(output.contains("`author.name` is neither a primary key nor unique"));
+        // SQLite does not check the types
+        let mut output = Vec::new();
+        read_fields(&mut "author_id:i32\n1\n\n\n".as_bytes(), &mut output, false, Some(Dialect::Sqlite), Some(("book", &tables)), false).unwrap();
+        assert!(!String::from_utf8(output).unwrap().contains("may be refused"));
+    }
+
+    #[test]
+    fn migration_declares_the_foreign_keys() {
+        let fields = vec![
+            Field { references: Some(Reference { table: "author".into(), column: "id".into() }), ..field("author_id", "i64") },
+            field("title", "String"),
+            Field { references: Some(Reference { table: "book".into(), column: "id".into() }), ..field("parent_id", "Option<i64>") },
+        ];
+        assert_eq!(render_migration("Book", &fields, true, Dialect::Mysql).unwrap(), "CREATE TABLE IF NOT EXISTS book (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    author_id BIGINT NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    parent_id BIGINT,
+    created_at DATETIME(6),
+    updated_at DATETIME(6),
+    deleted_at DATETIME(6),
+    FOREIGN KEY (author_id) REFERENCES author (id),
+    FOREIGN KEY (parent_id) REFERENCES book (id)
+);
+");
+    }
+
+    #[test]
+    fn foreign_keys_flag_requires_migration() {
+        let parse = |flags: &[&str]| {
+            let mut args = vec!["octopux", "generate-model", "--name", "Book", "--fields"];
+            args.extend(flags);
+            Opt::from_iter_safe(&args)
+        };
+        assert!(parse(&["--foreign-keys"]).is_err());
+        assert!(parse(&["--foreign-keys", "--migration"]).is_ok());
+    }
+
+    #[test]
+    fn read_fields_asks_whether_the_columns_are_unique() {
+        // no reference and unique, not unique by default, then a self reference proposing the unique field as unique
+        let input = "email\n\n\n\ny\nname\n\n\n\n\nparent_email\n\n\n1\nemail\nno\n\n";
+        let mut output = Vec::new();
+        let fields = read_fields(&mut input.as_bytes(), &mut output, false, Some(Dialect::Postgres), Some(("author", &[])), true).unwrap();
+        let unique = |name: &str| Field { unique: true, ..field(name, "String") };
+        assert_eq!(fields, vec![
+            unique("email"),
+            field("name", "String"),
+            Field { references: Some(Reference { table: "author".into(), column: "email".into() }), ..field("parent_email", "String") },
+        ]);
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains("? Is `email` unique › (y/N) "));
+        assert!(output.contains("1) id BIGSERIAL (unique)  2) email VARCHAR(255) (unique)  3) name VARCHAR(255)"));
+        assert!(output.contains("email: String (unique)"));
+        assert!(!output.contains("neither a primary key nor unique"));
+    }
+
+    #[test]
+    fn read_fields_warns_about_unique_columns_mysql_refuses() {
+        let mut output = Vec::new();
+        let fields = read_fields(&mut "hash:Vec<u8>\ny\nemail\n\n\ny\n\n".as_bytes(), &mut output, false, Some(Dialect::Mysql), None, true).unwrap();
+        assert!(fields.iter().all(|f| f.unique));
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains("MySQL refuses a unique index on the BLOB column `hash`"));
+        assert!(!output.contains("column `email`"));
+    }
+
+    #[test]
+    fn read_fields_asks_for_the_varchar_lengths() {
+        // too long for MySQL, zero, then a length, the default length, no length asked for a TEXT column
+        let input = "title\n\n20000\n0\n80\nsummary:String?\n\n\n";
+        let mut output = Vec::new();
+        let fields = read_fields(&mut input.as_bytes(), &mut output, false, Some(Dialect::Mysql), None, false).unwrap();
+        assert_eq!(fields, vec![Field { length: Some(80), ..field("title", "String") }, field("summary", "Option<String>")]);
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains("? Length of `title` › (VARCHAR, 1 to 16383) [255] "));
+        assert!(output.contains("`20000` is not a MySQL VARCHAR length, pick 1 to 16383"));
+        assert!(output.contains("`0` is not a MySQL VARCHAR length"));
+        assert_eq!(render_migration("Post", &fields, false, Dialect::Mysql).unwrap(), "CREATE TABLE IF NOT EXISTS post (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(80) NOT NULL,
+    summary VARCHAR(255)
+);
+");
+        let mut output = Vec::new();
+        read_fields(&mut "title\n\n\n".as_bytes(), &mut output, false, Some(Dialect::Sqlite), None, false).unwrap();
+        assert!(!String::from_utf8(output).unwrap().contains("Length of"));
+    }
+
+    #[test]
+    fn migration_declares_the_unique_constraints() {
+        let fields = vec![
+            Field { unique: true, ..field("email", "String") },
+            field("title", "String"),
+            Field { unique: true, references: Some(Reference { table: "author".into(), column: "id".into() }), ..field("author_id", "i64") },
+        ];
+        assert_eq!(render_migration("Book", &fields, false, Dialect::Postgres).unwrap(), "CREATE TABLE IF NOT EXISTS book (
+    id BIGSERIAL PRIMARY KEY,
+    email VARCHAR(255) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    author_id INT8 NOT NULL,
+    UNIQUE (email),
+    UNIQUE (author_id),
+    FOREIGN KEY (author_id) REFERENCES author (id)
+);
+");
+    }
+
+    #[test]
+    fn unique_flag_requires_migration() {
+        let parse = |flags: &[&str]| {
+            let mut args = vec!["octopux", "generate-model", "--name", "Book", "--fields"];
+            args.extend(flags);
+            Opt::from_iter_safe(&args)
+        };
+        assert!(parse(&["--unique"]).is_err());
+        assert!(parse(&["--unique", "--migration"]).is_ok());
+    }
+
+    #[test]
+    fn database_url_types_match_the_sqlx_types() {
+        assert_eq!(url_dialect("postgres://user@localhost/db"), Some(Dialect::Postgres));
+        assert_eq!(url_dialect("sqlite://data.db?mode=rwc"), Some(Dialect::Sqlite));
+        assert_eq!(url_dialect("mariadb://localhost/db"), Some(Dialect::Mysql));
+        assert_eq!(url_dialect("redis://localhost"), None);
+        assert_eq!(postgres_column_type("int8"), "INT8");
+        assert_eq!(postgres_column_type("_text"), "TEXT[]");
+        assert!(Dialect::Postgres.same_column_type("INT8", "bigserial"));
+        assert!(Dialect::Postgres.same_column_type("FLOAT8", "DOUBLE  PRECISION"));
+        assert!(!Dialect::Postgres.same_column_type("INT4", "INT8"));
+        assert!(Dialect::Postgres.same_column_type("VARCHAR(255)", "text"));
+        assert!(Dialect::Postgres.same_column_type("VARCHAR(255)", "VARCHAR"));
+        assert!(!Dialect::Postgres.same_column_type("VARCHAR(255)", "INT8"));
+        assert!(Dialect::Mysql.same_column_type("BIGINT", "bigint"));
+        assert!(!Dialect::Mysql.same_column_type("INT", "BIGINT"));
+    }
 
     #[test]
     fn default_model_has_no_openapi_derives_and_an_undocumented_configure() {
@@ -1397,6 +2183,7 @@ mod tests {
     #[test]
     fn model_without_fields_keeps_empty_structs() {
         let model = render_model("Project", false, false, false, &[], Dialect::Sqlite);
+        assert!(model.contains("pub type Id = i64;"));
         assert!(model.contains("pub struct Project {\n        pub id: Id,\n    }"));
         assert!(model.contains("pub struct NewProject {\n\n    }"));
         assert!(model.contains("pub struct UpdatableProject {\n        pub id: Id,\n    }"));
@@ -1406,8 +2193,8 @@ mod tests {
     #[test]
     fn fields_are_added_to_every_model_struct() {
         let fields = vec![
-            Field { name: "title".into(), ty: "String".into() },
-            Field { name: "stars".into(), ty: "i32".into() },
+            field("title", "String"),
+            field("stars", "i32"),
         ];
         let model = render_model("Project", false, false, false, &fields, Dialect::Sqlite);
         assert!(model.contains("pub struct Project {\n        pub id: Id,\n        pub title: String,\n        pub stars: i32,\n    }"));
@@ -1420,10 +2207,10 @@ mod tests {
         // invalid names, default type, duplicate and reserved `id` are handled
         let input = "title\n\n1bad\nstars\ni32\ntitle\nid\n\n";
         let mut output = Vec::new();
-        let fields = read_fields(&mut input.as_bytes(), &mut output, false, None).unwrap();
+        let fields = read_fields(&mut input.as_bytes(), &mut output, false, None, None, false).unwrap();
         assert_eq!(fields, vec![
-            Field { name: "title".into(), ty: "String".into() },
-            Field { name: "stars".into(), ty: "i32".into() },
+            field("title", "String"),
+            field("stars", "i32"),
         ]);
         let output = String::from_utf8(output).unwrap();
         assert!(output.contains("`1bad` is not a valid field name"));
@@ -1435,7 +2222,7 @@ mod tests {
     fn read_fields_converts_names_to_snake_case() {
         let input = "OptStr\n\nhttpCode\n\nfirst name\n\nlast-name\n\nopt_str\nID\n\n";
         let mut output = Vec::new();
-        let fields = read_fields(&mut input.as_bytes(), &mut output, false, None).unwrap();
+        let fields = read_fields(&mut input.as_bytes(), &mut output, false, None, None, false).unwrap();
         let names: Vec<&str> = fields.iter().map(|f| f.name.as_str()).collect();
         assert_eq!(names, ["opt_str", "http_code", "first_name", "last_name"]);
         let output = String::from_utf8(output).unwrap();
@@ -1459,8 +2246,8 @@ mod tests {
     #[test]
     fn read_fields_stops_at_end_of_input() {
         let mut output = Vec::new();
-        let fields = read_fields(&mut "title\nString".as_bytes(), &mut output, false, None).unwrap();
-        assert_eq!(fields, vec![Field { name: "title".into(), ty: "String".into() }]);
+        let fields = read_fields(&mut "title\nString".as_bytes(), &mut output, false, None, None, false).unwrap();
+        assert_eq!(fields, vec![field("title", "String")]);
     }
 
     #[test]
@@ -1476,8 +2263,8 @@ mod tests {
     #[test]
     fn read_fields_asks_again_for_an_unknown_type_number() {
         let mut output = Vec::new();
-        let fields = read_fields(&mut "done\n42\n5\n\n".as_bytes(), &mut output, false, None).unwrap();
-        assert_eq!(fields, vec![Field { name: "done".into(), ty: "bool".into() }]);
+        let fields = read_fields(&mut "done\n42\n5\n\n".as_bytes(), &mut output, false, None, None, false).unwrap();
+        assert_eq!(fields, vec![field("done", "bool")]);
         let output = String::from_utf8(output).unwrap();
         assert!(output.contains("1) String  2) i32"));
         assert!(output.contains("`42` is not in the list, pick 1 to 11"));
@@ -1496,12 +2283,12 @@ mod tests {
     fn read_fields_accepts_inline_types_and_removes_the_last_field() {
         let input = "title:String\nstars:2?\nviews\n3\n-\nscore: f64\nbad:42\n5\n\n";
         let mut output = Vec::new();
-        let fields = read_fields(&mut input.as_bytes(), &mut output, false, None).unwrap();
+        let fields = read_fields(&mut input.as_bytes(), &mut output, false, None, None, false).unwrap();
         assert_eq!(fields, vec![
-            Field { name: "title".into(), ty: "String".into() },
-            Field { name: "stars".into(), ty: "Option<i32>".into() },
-            Field { name: "score".into(), ty: "f64".into() },
-            Field { name: "bad".into(), ty: "bool".into() },
+            field("title", "String"),
+            field("stars", "Option<i32>"),
+            field("score", "f64"),
+            field("bad", "bool"),
         ]);
         let output = String::from_utf8(output).unwrap();
         assert!(output.contains("Field `views` removed"));
@@ -1520,8 +2307,8 @@ mod tests {
     #[test]
     fn sqlx_model_derives_the_model_traits() {
         let fields = vec![
-            Field { name: "title".into(), ty: "String".into() },
-            Field { name: "stars".into(), ty: "i32".into() },
+            field("title", "String"),
+            field("stars", "i32"),
         ];
         let model = render_model("Project", false, true, false, &fields, Dialect::Sqlite);
         assert!(!super::EMPTY_BODIES.iter().any(|body| model.contains(body)));
@@ -1537,7 +2324,7 @@ mod tests {
 
     #[test]
     fn sqlx_model_paginates_the_list() {
-        let fields = vec![Field { name: "title".into(), ty: "String".into() }];
+        let fields = vec![field("title", "String")];
         let model = render_model("Project", false, true, false, &fields, Dialect::Sqlite);
         assert!(model.contains("pub struct ListQuery {\n        /// Number of rows to skip\n        pub offset: Option<usize>,"));
         assert!(model.contains("        pub limit: Option<usize>,\n    }"));
@@ -1549,7 +2336,7 @@ mod tests {
 
     #[test]
     fn sqlx_model_sets_timestamps_and_soft_deletes() {
-        let fields = vec![Field { name: "title".into(), ty: "String".into() }];
+        let fields = vec![field("title", "String")];
         let model = render_model("Project", false, true, true, &fields, Dialect::Sqlite);
         assert!(model.contains("use chrono::{DateTime, Utc};"));
         assert_eq!(model.matches("#[sqlx_model(database = \"sqlite\", timestamps, soft_delete)]").count(), 2);
@@ -1558,7 +2345,7 @@ mod tests {
 
     #[test]
     fn sqlx_model_targets_the_database() {
-        let fields = vec![Field { name: "title".into(), ty: "String".into() }];
+        let fields = vec![field("title", "String")];
         let postgres = render_model("Project", false, true, false, &fields, Dialect::Postgres);
         assert_eq!(postgres.matches("database = \"postgres\"").count(), 3);
         let mysql = render_model("Project", true, true, false, &fields, Dialect::Mysql);
@@ -1575,14 +2362,14 @@ mod tests {
     #[test]
     fn migration_creates_the_model_table() {
         let fields = vec![
-            Field { name: "title".into(), ty: "String".into() },
-            Field { name: "stars".into(), ty: "i32".into() },
-            Field { name: "views".into(), ty: "i64".into() },
-            Field { name: "score".into(), ty: "f64".into() },
-            Field { name: "done".into(), ty: "bool".into() },
-            Field { name: "summary".into(), ty: "Option<String>".into() },
-            Field { name: "cover".into(), ty: "Option<Vec<u8>>".into() },
-            Field { name: "hits".into(), ty: "u64".into() },
+            field("title", "String"),
+            field("stars", "i32"),
+            field("views", "i64"),
+            field("score", "f64"),
+            field("done", "bool"),
+            field("summary", "Option<String>"),
+            field("cover", "Option<Vec<u8>>"),
+            field("hits", "u64"),
         ];
         assert_eq!(render_migration("Project", &fields, false, Dialect::Sqlite).unwrap(), "CREATE TABLE IF NOT EXISTS project (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1600,6 +2387,17 @@ mod tests {
     }
 
     #[test]
+    fn sources_go_in_the_src_folder_when_it_exists() {
+        let root = std::env::temp_dir().join(format!("octopux-source-path-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        assert_eq!(source_path(&root, "project.rs"), "project.rs");
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        assert_eq!(source_path(&root, "project.rs"), "src/project.rs");
+        assert_eq!(source_path(&root.join("src"), "project.rs"), "project.rs");
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
     fn migrations_go_next_to_the_src_folder() {
         use std::path::{Path, PathBuf};
         assert_eq!(migrations_dir(Path::new("/app")), PathBuf::from("migrations"));
@@ -1610,9 +2408,9 @@ mod tests {
     #[test]
     fn migration_rejects_types_without_column_type() {
         let fields = vec![
-            Field { name: "tags".into(), ty: "Vec<String>".into() },
-            Field { name: "title".into(), ty: "String".into() },
-            Field { name: "meta".into(), ty: "Option<serde_json::Value>".into() },
+            field("tags", "Vec<String>"),
+            field("title", "String"),
+            field("meta", "Option<serde_json::Value>"),
         ];
         assert_eq!(
             render_migration("Project", &fields, false, Dialect::Sqlite),
@@ -1624,18 +2422,18 @@ mod tests {
     fn read_fields_asks_again_for_a_type_without_column_type() {
         let mut output = Vec::new();
         let input = "tags\nVec<String>\nchrono::NaiveDate\n\n";
-        let fields = read_fields(&mut input.as_bytes(), &mut output, false, Some(Dialect::Sqlite)).unwrap();
-        assert_eq!(fields, vec![Field { name: "tags".into(), ty: "chrono::NaiveDate".into() }]);
+        let fields = read_fields(&mut input.as_bytes(), &mut output, false, Some(Dialect::Sqlite), None, false).unwrap();
+        assert_eq!(fields, vec![field("tags", "chrono::NaiveDate")]);
         let output = String::from_utf8(output).unwrap();
         assert!(output.contains("`Vec<String>` has no SQLite column type, use one of String, i8"));
         // without a migration any type is accepted
-        let fields = read_fields(&mut "tags\nVec<String>\n\n".as_bytes(), &mut Vec::new(), false, None).unwrap();
-        assert_eq!(fields, vec![Field { name: "tags".into(), ty: "Vec<String>".into() }]);
+        let fields = read_fields(&mut "tags\nVec<String>\n\n".as_bytes(), &mut Vec::new(), false, None, None, false).unwrap();
+        assert_eq!(fields, vec![field("tags", "Vec<String>")]);
     }
 
     #[test]
     fn timestamps_are_added_to_the_model_and_updatable_structs() {
-        let fields = vec![Field { name: "title".into(), ty: "String".into() }];
+        let fields = vec![field("title", "String")];
         let model = render_model("Project", false, false, true, &fields, Dialect::Sqlite);
         assert!(model.contains("use chrono::{DateTime, Utc};"));
         assert!(model.contains("pub struct Project {\n        pub id: Id,\n        pub title: String,\n        pub created_at: Option<DateTime<Utc>>,\n        pub updated_at: Option<DateTime<Utc>>,\n        pub deleted_at: Option<DateTime<Utc>>,\n    }"));
@@ -1646,7 +2444,7 @@ mod tests {
 
     #[test]
     fn migration_adds_timestamp_columns() {
-        let fields = vec![Field { name: "title".into(), ty: "String".into() }];
+        let fields = vec![field("title", "String")];
         assert_eq!(
             render_migration("Project", &fields, true, Dialect::Sqlite).unwrap(),
             "CREATE TABLE IF NOT EXISTS project (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    title TEXT NOT NULL,\n    created_at DATETIME,\n    updated_at DATETIME,\n    deleted_at DATETIME\n);\n"
@@ -1656,8 +2454,8 @@ mod tests {
     #[test]
     fn timestamps_reserve_their_field_names() {
         let mut output = Vec::new();
-        let fields = read_fields(&mut "created_at\nupdated_at\ndeleted_at\ntitle\n\n".as_bytes(), &mut output, true, None).unwrap();
-        assert_eq!(fields, vec![Field { name: "title".into(), ty: "String".into() }]);
+        let fields = read_fields(&mut "created_at\nupdated_at\ndeleted_at\ntitle\n\n".as_bytes(), &mut output, true, None, None, false).unwrap();
+        assert_eq!(fields, vec![field("title", "String")]);
         let output = String::from_utf8(output).unwrap();
         assert!(output.contains("Field `created_at` is already declared"));
         assert!(output.contains("Field `updated_at` is already declared"));
@@ -1674,10 +2472,10 @@ mod tests {
     #[test]
     fn date_fields_import_chrono_and_get_date_columns() {
         let fields = vec![
-            Field { name: "published_at".into(), ty: "DateTime<Utc>".into() },
-            Field { name: "release".into(), ty: "NaiveDate".into() },
-            Field { name: "seen_at".into(), ty: "Option<NaiveDateTime>".into() },
-            Field { name: "opens".into(), ty: "NaiveTime".into() },
+            field("published_at", "DateTime<Utc>"),
+            field("release", "NaiveDate"),
+            field("seen_at", "Option<NaiveDateTime>"),
+            field("opens", "NaiveTime"),
         ];
         let model = render_model("Project", false, false, false, &fields, Dialect::Sqlite);
         assert!(model.contains("use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};"));
@@ -1710,24 +2508,24 @@ mod tests {
     #[test]
     fn postgres_migration_uses_postgres_types() {
         let fields = vec![
-            Field { name: "title".into(), ty: "String".into() },
-            Field { name: "stars".into(), ty: "i32".into() },
-            Field { name: "views".into(), ty: "i64".into() },
-            Field { name: "score".into(), ty: "f64".into() },
-            Field { name: "done".into(), ty: "bool".into() },
-            Field { name: "tags".into(), ty: "Vec<String>".into() },
-            Field { name: "cover".into(), ty: "Option<Vec<u8>>".into() },
-            Field { name: "at".into(), ty: "DateTime<Utc>".into() },
-            Field { name: "ratios".into(), ty: "Vec<f32>".into() },
-            Field { name: "seen".into(), ty: "Vec<DateTime<Utc>>".into() },
-            Field { name: "days".into(), ty: "Option<Vec<NaiveDate>>".into() },
-            Field { name: "logs".into(), ty: "Vec<NaiveDateTime>".into() },
-            Field { name: "slots".into(), ty: "Vec<NaiveTime>".into() },
-            Field { name: "blobs".into(), ty: "Vec<Vec<u8>>".into() },
+            field("title", "String"),
+            field("stars", "i32"),
+            field("views", "i64"),
+            field("score", "f64"),
+            field("done", "bool"),
+            field("tags", "Vec<String>"),
+            field("cover", "Option<Vec<u8>>"),
+            field("at", "DateTime<Utc>"),
+            field("ratios", "Vec<f32>"),
+            field("seen", "Vec<DateTime<Utc>>"),
+            field("days", "Option<Vec<NaiveDate>>"),
+            field("logs", "Vec<NaiveDateTime>"),
+            field("slots", "Vec<NaiveTime>"),
+            field("blobs", "Vec<Vec<u8>>"),
         ];
         assert_eq!(render_migration("Project", &fields, true, Dialect::Postgres).unwrap(), "CREATE TABLE IF NOT EXISTS project (
     id BIGSERIAL PRIMARY KEY,
-    title TEXT NOT NULL,
+    title VARCHAR(255) NOT NULL,
     stars INT4 NOT NULL,
     views INT8 NOT NULL,
     score FLOAT8 NOT NULL,
@@ -1746,7 +2544,7 @@ mod tests {
     deleted_at TIMESTAMPTZ
 );
 ");
-        let unsigned = vec![Field { name: "count".into(), ty: "u32".into() }];
+        let unsigned = vec![field("count", "u32")];
         assert_eq!(
             render_migration("Project", &unsigned, false, Dialect::Postgres),
             Err("no PostgreSQL column type for count: u32".to_string())
@@ -1756,12 +2554,12 @@ mod tests {
     #[test]
     fn mysql_migration_uses_mysql_types() {
         let fields = vec![
-            Field { name: "title".into(), ty: "String".into() },
-            Field { name: "stars".into(), ty: "i32".into() },
-            Field { name: "count".into(), ty: "u32".into() },
-            Field { name: "score".into(), ty: "f64".into() },
-            Field { name: "done".into(), ty: "bool".into() },
-            Field { name: "summary".into(), ty: "Option<String>".into() },
+            field("title", "String"),
+            field("stars", "i32"),
+            field("count", "u32"),
+            field("score", "f64"),
+            field("done", "bool"),
+            field("summary", "Option<String>"),
         ];
         assert_eq!(render_migration("Project", &fields, true, Dialect::Mysql).unwrap(), "CREATE TABLE IF NOT EXISTS project (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -1776,18 +2574,18 @@ mod tests {
     deleted_at DATETIME(6)
 );
 ");
-        let tags = vec![Field { name: "tags".into(), ty: "Vec<String>".into() }];
+        let tags = vec![field("tags", "Vec<String>")];
         assert!(render_migration("Project", &tags, false, Dialect::Mysql).is_err());
     }
 
     #[test]
     fn read_fields_checks_types_against_the_database() {
         let mut output = Vec::new();
-        let fields = read_fields(&mut "tags\nVec<String>\n\n".as_bytes(), &mut output, false, Some(Dialect::Postgres)).unwrap();
-        assert_eq!(fields, vec![Field { name: "tags".into(), ty: "Vec<String>".into() }]);
+        let fields = read_fields(&mut "tags\nVec<String>\n\n".as_bytes(), &mut output, false, Some(Dialect::Postgres), None, false).unwrap();
+        assert_eq!(fields, vec![field("tags", "Vec<String>")]);
         let mut output = Vec::new();
-        let fields = read_fields(&mut "count\nu32\ni64\n\n".as_bytes(), &mut output, false, Some(Dialect::Postgres)).unwrap();
-        assert_eq!(fields, vec![Field { name: "count".into(), ty: "i64".into() }]);
+        let fields = read_fields(&mut "count\nu32\ni64\n\n".as_bytes(), &mut output, false, Some(Dialect::Postgres), None, false).unwrap();
+        assert_eq!(fields, vec![field("count", "i64")]);
         assert!(String::from_utf8(output).unwrap().contains("`u32` has no PostgreSQL column type, use one of String, i16"));
     }
 
@@ -1963,6 +2761,25 @@ mod tests {
         assert!(!answer("n\n"));
         assert!(!answer("maybe\n"));
         assert!(!answer(""));
+    }
+
+    #[test]
+    fn confirm_save_defaults_to_yes() {
+        let files = [("project.rs".to_string(), false)];
+        let answer = |input: &str| confirm_save(&mut input.as_bytes(), &mut Vec::new(), &files).unwrap();
+        assert!(answer("\n"));
+        assert!(answer("y\n"));
+        assert!(answer(""));
+        assert!(!answer("n\n"));
+        assert!(!answer("NO\n"));
+    }
+
+    #[test]
+    fn changes_summary_lists_the_created_and_overwritten_files() {
+        let summary = changes_summary(&[("project.rs".to_string(), true), ("migrations/1_create_project.sql".to_string(), false)]);
+        assert!(summary.starts_with("2 files to write"));
+        assert!(summary.contains("  ~ project.rs (overwritten)"));
+        assert!(summary.contains("  + migrations/1_create_project.sql"));
     }
 
     #[test]
