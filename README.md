@@ -453,3 +453,9 @@ The [`examples`](examples) folder contains runnable projects:
 | [`openapi`](examples/openapi) | sqlx models documented with OpenAPI and Swagger UI |
 
 They come with request collections for [Hoppscotch](https://hoppscotch.io/) (and Insomnia for some).
+
+
+## Issues
+
+`Sqlx` fail to compile with `strip`. See :
+https://github.com/ctaque/octopux/issues/5
