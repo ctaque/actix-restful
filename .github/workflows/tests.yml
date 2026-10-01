@@ -1,0 +1,26 @@
+name: Tests
+
+on:
+  pull_request:
+    branches: [develop]
+  push:
+    branches: [develop]
+
+env:
+  CARGO_TERM_COLOR: always
+  # Les macros sqlx de l'exemple openapi utilisent le cache `.sqlx` plutôt qu'une base live
+  SQLX_OFFLINE: "true"
+
+jobs:
+  test:
+    name: cargo test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run tests
+        run: cargo test --workspace --locked
