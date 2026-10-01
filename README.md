@@ -27,6 +27,7 @@ Generate JSON CRUD endpoints for [Actix Web](https://actix.rs) from your structs
   - [generate-model](#generate-model)
   - [generate-relation](#generate-relation)
 - [Examples](#examples)
+- [Issues](#issues)
 
 ## Installation
 
