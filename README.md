@@ -87,7 +87,7 @@ This produces:
 
 The generated model imports the application state from the crate root (`use crate::AppState;`), so `main.rs` declares it, with the sqlx `pool`:
 
-2.1) Create a `src/helpers.rs` file with the AppState struct, shared between models files and the main.rs file.
+2.1) Create a `src/helpers.rs` file with the AppState struct, which will be shared between models files and the main.rs file.
 
 2.2) Wire into `main.rs`
 ```rust
