@@ -14,7 +14,7 @@ Generate JSON CRUD endpoints for [Actix Web](https://actix.rs) from your structs
 
 | octopux | Actix Web |
 | --- | --- |
-| `v0.8.0` | v4 |
+| `v0.9.0` | v4 |
 | `v0.1.0` | v3 |
 
 ## Table of contents
@@ -36,7 +36,7 @@ Generate JSON CRUD endpoints for [Actix Web](https://actix.rs) from your structs
 ### The library
 
 ```bash
-cargo add --git https://github.com/ctaque/octopux --tag v0.8.0 octopux
+cargo add --git https://github.com/ctaque/octopux --tag v0.9.0 octopux
 cargo add actix-web
 cargo add serde --features derive
 ```
@@ -51,7 +51,7 @@ Optional features:
 | `openapi` | The documented routes (see [OpenAPI documentation](#openapi-documentation-with-apistos)) | `cargo add apistos --features chrono,swagger-ui`<br>`cargo add schemars --rename schemars --package apistos-schemars` |
 
 ```bash
-cargo add --git https://github.com/ctaque/octopux --tag v0.8.0 octopux --features openapi,sqlx
+cargo add --git https://github.com/ctaque/octopux --tag v0.9.0 octopux --features openapi,sqlx
 ```
 
 Add `chrono` (`cargo add chrono --features serde`) when your models have date fields or use `--timestamps`.
@@ -61,7 +61,7 @@ Add `chrono` (`cargo add chrono --features serde`) when your models have date fi
 Once per machine:
 
 ```bash
-cargo install --git https://github.com/ctaque/octopux --tag v0.8.0 octopux-cli   # installs the `octopux` binary
+cargo install --git https://github.com/ctaque/octopux --tag v0.9.0 octopux-cli   # installs the `octopux` binary
 cargo install sqlx-cli                                                                        # optional, for `sqlx migrate run`
 ```
 
@@ -184,7 +184,7 @@ The traits can be implemented by hand, see [`examples/simple`](examples/simple/s
 
 ```toml
 [dependencies]
-octopux = { version = "0.8", git = "https://github.com/ctaque/octopux", features = ["openapi"] }
+octopux = { version = "0.9", git = "https://github.com/ctaque/octopux", features = ["openapi"] }
 apistos = { version = "0.9", features = ["chrono", "swagger-ui"] }
 # apistos relies on its fork of schemars
 schemars = { package = "apistos-schemars", version = "0.8" }
