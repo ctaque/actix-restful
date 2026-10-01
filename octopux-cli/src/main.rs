@@ -10,6 +10,16 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "octopux")]
+pub struct Cli {
+    /// Generates src/main.rs and src/helpers.rs of an actix server, if src/helpers.rs does not exist,
+    /// prompting before overwriting an existing src/main.rs, then prompts for adding their dependencies to Cargo.toml with `cargo add`
+    #[structopt(long = "bootstrap")]
+    bootstrap: bool,
+    #[structopt(subcommand)]
+    cmd: Option<Opt>,
+}
+
+#[derive(Debug, StructOpt)]
 pub enum Opt {
     #[structopt(name = "generate-model")]
     GenerateModel {
@@ -93,6 +103,58 @@ pub enum Opt {
         force: bool,
     },
 }
+
+const BOOTSTRAP_MAIN: &str = r#"mod helpers;
+mod project;
+use actix_web::web;
+use apistos::app::{BuildConfig, OpenApiWrapper};
+use apistos::info::Info;
+use apistos::spec::Spec;
+use apistos::SwaggerUIConfig;
+use helpers::AppState;
+use sqlx::SqlitePool;
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    let pool = SqlitePool::connect("sqlite://data.db?mode=rwc").await.unwrap();
+    sqlx::migrate!().run(&pool).await.unwrap();
+    let state = web::Data::new(AppState { pool });
+
+    actix_web::HttpServer::new(move || {
+        let spec = Spec {
+            info: Info {
+                title: "MyApp REST API".to_string(),
+                version: "1.0.0".to_string(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        actix_web::App::new()
+            .document(spec)
+            // Actix does not fall through between scopes sharing a prefix,
+            // so resources living under the same scope must be registered together
+            .service(
+                apistos::web::scope("v1")
+                    .configure(project::configure), // Where the magic operates
+            )
+            .app_data(state.clone())
+            .build_with(
+                "/openapi.json",
+                BuildConfig::default().with(SwaggerUIConfig::new(&"/swagger")),
+            )
+    })
+    .bind(("127.0.0.1", 8085))?
+    .run()
+    .await
+}
+"#;
+
+const BOOTSTRAP_HELPERS: &str = r#"use sqlx::SqlitePool;
+
+pub struct AppState {
+    pub pool: SqlitePool,
+}
+"#;
 
 const OPENAPI_IMPORTS: &str = r#"
     use apistos::ApiComponent;
@@ -913,9 +975,94 @@ const RELATION_TPL: &str = r#"
     }
     "#;
 
-fn main() -> Result<(), Error> {
-    let opt = Opt::from_args();
+// Writes src/main.rs and src/helpers.rs under `root`, only if src/helpers.rs does not exist,
+// an existing src/main.rs (such as the one of `cargo init`) is only overwritten once confirmed
+fn bootstrap<R: BufRead, W: Write>(root: &Path, input: &mut R, output: &mut W) -> Result<(), Error> {
+    let files = [("main.rs", BOOTSTRAP_MAIN), ("helpers.rs", BOOTSTRAP_HELPERS)];
+    let src = root.join("src");
+    let helpers = src.join("helpers.rs");
+    if helpers.exists() {
+        eprintln!("{} already exists, project not bootstrapped", helpers.display());
+        process::exit(1);
+    }
+    let main = src.join("main.rs");
+    if main.exists() && !confirm(input, output, &format!("{} already exists, overwrite it with the generated one?", main.display()))? {
+        eprintln!("{} kept, project not bootstrapped", main.display());
+        process::exit(1);
+    }
+    fs::create_dir_all(&src)?;
+    for (name, content) in files {
+        fs::write(src.join(name), content)?;
+    }
+    println!(
+        "Successfully bootstrapped src/main.rs and src/helpers.rs, generate the project model it mounts with `octopux generate-model --name Project --openapi` in src"
+    );
+    Ok(())
+}
 
+// `cargo add` arguments of the dependencies of the bootstrapped files and of the generated models,
+// octopux is taken from the tag of the CLI version in its repository, so that the generated code matches its macros
+fn bootstrap_dependencies() -> Vec<Vec<String>> {
+    let tag = format!("v{}", env!("CARGO_PKG_VERSION"));
+    [
+        vec!["octopux", "--git", env!("CARGO_PKG_REPOSITORY"), "--tag", tag.as_str(), "--features", "openapi,sqlx"],
+        vec!["actix-web@4"],
+        vec!["apistos@0.9", "--features", "chrono,swagger-ui"],
+        vec!["apistos-schemars@0.8", "--rename", "schemars"],
+        vec!["serde@1", "--features", "derive"],
+        vec!["chrono@0.4", "--features", "serde"],
+        vec!["sqlx@0.9", "--no-default-features", "--features", "runtime-tokio,sqlite,chrono,macros,migrate"],
+    ]
+    .iter()
+    .map(|args| args.iter().map(|a| a.to_string()).collect())
+    .collect()
+}
+
+// Only an explicit yes accepts, an empty answer or the end of the input refuses
+fn confirm<R: BufRead, W: Write>(input: &mut R, output: &mut W, message: &str) -> Result<bool, Error> {
+    let answer = prompt(input, output, &format!("{} (y/N) ", message))?;
+    Ok(matches!(answer.as_deref().map(str::to_lowercase).as_deref(), Some("y" | "yes")))
+}
+
+// Runs `cargo add` in `root` for each dependency of the bootstrapped project
+fn install_dependencies(root: &Path) -> Result<(), Error> {
+    if !root.join("Cargo.toml").exists() {
+        eprintln!("No Cargo.toml in {}, dependencies not installed, create the crate with `cargo init` first", root.display());
+        process::exit(1);
+    }
+    for args in bootstrap_dependencies() {
+        let status = process::Command::new("cargo").arg("add").args(&args).current_dir(root).status()?;
+        if !status.success() {
+            eprintln!("`cargo add {}` failed, remaining dependencies not installed", args.join(" "));
+            process::exit(1);
+        }
+    }
+    println!("Successfully installed the dependencies");
+    Ok(())
+}
+
+fn main() -> Result<(), Error> {
+    let cli = Cli::from_args();
+    if cli.bootstrap {
+        let root = std::env::current_dir()?;
+        let mut input = io::stdin().lock();
+        bootstrap(&root, &mut input, &mut io::stdout())?;
+        if confirm(&mut input, &mut io::stdout(), "Install the dependencies with `cargo add`?")? {
+            install_dependencies(&root)?;
+        }
+    }
+    match cli.cmd {
+        Some(opt) => run(opt),
+        None if cli.bootstrap => Ok(()),
+        None => {
+            Cli::clap().print_help().map_err(|e| Error::other(e.to_string()))?;
+            println!();
+            Ok(())
+        }
+    }
+}
+
+fn run(opt: Opt) -> Result<(), Error> {
     match opt {
         Opt::GenerateModel { name, openapi, fields, sqlx, migration, sqlite: _, postgres, mysql, timestamps, force } => {
             let dialect = Dialect::from_flags(postgres, mysql);
@@ -984,7 +1131,7 @@ fn main() -> Result<(), Error> {
 mod tests {
     use super::{
         migration_timestamp, migrations_dir, parse_field_type, pluralize, read_fields, render_migration, render_model, render_relation, render_relation_migration, to_camel_case,
-        to_snake_case, Dialect, Field, Opt, Relation, Through,
+        to_snake_case, bootstrap, bootstrap_dependencies, confirm, Cli, Dialect, Field, Opt, Relation, Through,
     };
     use structopt::StructOpt;
 
@@ -1488,5 +1635,59 @@ mod tests {
     fn force_is_accepted_by_the_generators() {
         assert!(Opt::from_iter_safe(&["octopux", "generate-model", "--name", "Project", "--force"]).is_ok());
         assert!(Opt::from_iter_safe(&["octopux", "generate-relation", "--parent", "Project", "--child", "Book", "--force"]).is_ok());
+    }
+
+    #[test]
+    fn bootstrap_is_a_root_flag() {
+        let cli = Cli::from_iter_safe(&["octopux", "--bootstrap"]).unwrap();
+        assert!(cli.bootstrap && cli.cmd.is_none());
+        let cli = Cli::from_iter_safe(&["octopux", "generate-model", "--name", "Project"]).unwrap();
+        assert!(!cli.bootstrap && cli.cmd.is_some());
+    }
+
+    #[test]
+    fn bootstrap_writes_main_and_helpers() {
+        let root = std::env::temp_dir().join(format!("octopux-bootstrap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        bootstrap(&root, &mut "".as_bytes(), &mut Vec::new()).unwrap();
+        let main = std::fs::read_to_string(root.join("src/main.rs")).unwrap();
+        let helpers = std::fs::read_to_string(root.join("src/helpers.rs")).unwrap();
+        assert!(main.starts_with("mod helpers;\nmod project;\n"));
+        assert!(main.contains(".configure(project::configure)"));
+        assert!(helpers.contains("pub pool: SqlitePool,"));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn bootstrap_overwrites_existing_main_once_confirmed() {
+        let root = std::env::temp_dir().join(format!("octopux-bootstrap-overwrite-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+        let mut output = Vec::new();
+        bootstrap(&root, &mut "y\n".as_bytes(), &mut output).unwrap();
+        assert!(String::from_utf8(output).unwrap().contains("main.rs already exists, overwrite it with the generated one? (y/N) "));
+        assert!(std::fs::read_to_string(root.join("src/main.rs")).unwrap().starts_with("mod helpers;\n"));
+        assert!(root.join("src/helpers.rs").exists());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn confirm_defaults_to_no() {
+        let answer = |input: &str| confirm(&mut input.as_bytes(), &mut Vec::new(), "Install?").unwrap();
+        assert!(answer("y\n"));
+        assert!(answer("YES\n"));
+        assert!(!answer("\n"));
+        assert!(!answer("n\n"));
+        assert!(!answer("maybe\n"));
+        assert!(!answer(""));
+    }
+
+    #[test]
+    fn bootstrap_dependencies_pin_octopux_to_the_cli_version() {
+        let deps = bootstrap_dependencies();
+        let tag = format!("v{}", env!("CARGO_PKG_VERSION"));
+        assert_eq!(deps[0], ["octopux", "--git", "https://github.com/ctaque/octopux", "--tag", tag.as_str(), "--features", "openapi,sqlx"]);
+        assert!(deps.iter().any(|d| d == &["apistos-schemars@0.8", "--rename", "schemars"]));
     }
 }
