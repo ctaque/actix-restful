@@ -170,6 +170,17 @@ const OPENAPI_CONFIGURE: &str = r#"
     }
 "#;
 
+const ENDPOINT_IMPORTS: &str = r#"
+    use octopux::gen_endpoint;"#;
+
+const ENDPOINT_CONFIGURE: &str = r#"
+
+    // Registers the routes of the {entity_lower_case} endpoint, to mount with `.configure({entity_lower_case}::configure)`
+    pub fn configure(cfg: &mut actix_web::web::ServiceConfig) {
+        gen_endpoint!({entity}, New{entity}, Updatable{entity})(cfg)
+    }
+"#;
+
 const OPENAPI_DERIVES: &str = ", JsonSchema, ApiComponent";
 
 // Columns added by --timestamps, all nullable, `updated_at` is also part of the updatable struct
@@ -597,7 +608,7 @@ fn render_model(name: &str, openapi: bool, sqlx: bool, timestamps: bool, fields:
     let (imports, derives, configure) = if openapi {
         (OPENAPI_IMPORTS, OPENAPI_DERIVES, OPENAPI_CONFIGURE)
     } else {
-        ("", "", "")
+        (ENDPOINT_IMPORTS, "", ENDPOINT_CONFIGURE)
     };
     let field_lines = struct_fields(fields);
     // keeps the blank line of the empty creatable struct
@@ -1136,11 +1147,14 @@ mod tests {
     use structopt::StructOpt;
 
     #[test]
-    fn default_model_has_no_openapi_derives() {
+    fn default_model_has_no_openapi_derives_and_an_undocumented_configure() {
         let model = render_model("Project", false, false, false, &[], Dialect::Sqlite);
         assert!(!model.contains("JsonSchema"));
         assert!(!model.contains("ApiComponent"));
-        assert!(!model.contains("fn configure"));
+        assert!(model.contains("use octopux::gen_endpoint;"));
+        assert!(model.contains("pub fn configure(cfg: &mut actix_web::web::ServiceConfig) {\n        gen_endpoint!(Project, NewProject, UpdatableProject)(cfg)\n    }"));
+        assert!(model.contains("`.configure(project::configure)`"));
+        assert!(!model.contains("gen_documented_endpoint"));
         assert!(!model.contains("{openapi"));
         assert!(model.contains("#[octopux_info(path = \"project\")]"));
     }
