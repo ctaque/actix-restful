@@ -235,7 +235,7 @@ async fn main() -> std::io::Result<()> {
 }
 ```
 
-![Swagger UI generated for the Project resource](openapi.png)
+See the [Swagger UI generated for the Project resource](openapi.png).
 
 > **Troubleshooting:** apistos parses route paths with a regex syntax introduced in `regex` 1.9, but accepts older versions. If the app panics with `path name regex`, run `cargo update -p regex`.
 
