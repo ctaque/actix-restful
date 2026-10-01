@@ -389,6 +389,44 @@ async fn orders_the_rows_by_the_sort_field() {
     }
 }
 
+// The `project` table listed with the `filter` option, its list query being `ProjectFilter`
+#[derive(sqlx::FromRow, SqlxModel)]
+#[http_find_list_delete(Id, FindQuery, ProjectFilter, DeleteQuery, AppState)]
+#[sqlx_model(database = "sqlite", table = "project", pool = "db", soft_delete, filter, default_limit = 2)]
+struct FilteredProject {
+    id: Id,
+    name: String,
+}
+
+#[actix_web::test]
+async fn filter_option_lists_the_filtered_and_sorted_rows() {
+    use octopux::Model;
+    let state = state().await;
+    let app = app!(state);
+    for (name, r#type) in [("b", 1), ("a", 2), ("c", 3), ("d", 4)] {
+        let req = test::TestRequest::post().uri("/project").set_json(json!({ "name": name, "type": r#type })).to_request();
+        assert!(test::call_service(&app, req).await.status().is_success());
+    }
+    test::call_service(&app, test::TestRequest::delete().uri("/project/4").to_request()).await;
+    let list = |filter: ProjectFilter| {
+        let state = state.clone();
+        async move {
+            let models = <FilteredProject as Model<Id, FindQuery, ProjectFilter, Vec<FilteredProject>, DeleteQuery, FilteredProject, AppState>>::list(&filter, &state).await?;
+            anyhow::Ok(models.into_iter().map(|p| p.name).collect::<Vec<_>>())
+        }
+    };
+
+    // by `id` without `sort`, paginated, skipping the deleted rows
+    assert_eq!(list(ProjectFilter::default()).await.unwrap(), ["b", "a"]);
+    assert_eq!(list(ProjectFilter { offset: Some(1), limit: Some(10), ..Default::default() }).await.unwrap(), ["a", "c"]);
+    let sorted = ProjectFilter { sort: Some("name".into()), order: Some("desc".into()), limit: Some(10), ..Default::default() };
+    assert_eq!(list(sorted).await.unwrap(), ["c", "b", "a"]);
+    let filtered = ProjectFilter { r#type_gte: Some(2), sort: Some("-type".into()), ..Default::default() };
+    assert_eq!(list(filtered).await.unwrap(), ["c", "a"]);
+    let error = list(ProjectFilter { sort: Some("id".into()), ..Default::default() }).await.unwrap_err();
+    assert_eq!(error.to_string(), "invalid sort column `id`, use name, type");
+}
+
 // The PostgreSQL and MySQL queries are only type checked: they differ from the SQLite ones
 // by their placeholders, and on MySQL by the SELECT replacing RETURNING
 macro_rules! typed_models {

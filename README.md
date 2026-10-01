@@ -250,6 +250,7 @@ pub struct UpdatableProject {
 | `timestamps` | `save` sets `created_at` and `updated_at` to `Utc::now()`, `update` refreshes `updated_at`, and the payload does not set them |
 | `soft_delete` | `delete` sets `deleted_at` instead of removing the row, and `find`, `list` and `update` skip the rows whose `deleted_at` is set |
 | `default_limit`, `max_limit` | The page size of `list` without `limit`, and its maximum |
+| `filter` | On `SqlxModel`: `list` applies the filters and the sort of its list query, which derives `SqlxFilter` (see below), and orders by `id` without `sort` |
 | `before_save` | On `SqlxNewModel` and `SqlxUpdatableModel`: `save` and `update` first pass the payload through your `BeforeSave` implementation, see below |
 
 #### Transforming the payload with `before_save`

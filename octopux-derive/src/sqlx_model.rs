@@ -70,6 +70,9 @@ struct SqlxModelArgs {
     /// `save` and `update` pass the payload through `BeforeSave::before_save` first
     #[darling(default)]
     before_save: bool,
+    /// `list` pushes the conditions and the `ORDER BY` of the list query, which implements `SqlxFilter`
+    #[darling(default)]
+    filter: bool,
     #[darling(default)]
     default_limit: Option<i64>,
     #[darling(default)]
@@ -87,6 +90,7 @@ struct Config {
     timestamps: bool,
     soft_delete: bool,
     before_save: bool,
+    filter: bool,
     model: Option<syn::Path>,
     default_limit: i64,
     max_limit: i64,
@@ -125,6 +129,7 @@ fn parse_config(ast: &syn::DeriveInput, derive: &str, default_table: impl FnOnce
         timestamps: args.timestamps,
         soft_delete: args.soft_delete,
         before_save: args.before_save,
+        filter: args.filter,
         model: args.model,
         default_limit: args.default_limit.unwrap_or(DEFAULT_LIMIT),
         max_limit: args.max_limit.unwrap_or(MAX_LIMIT),
@@ -260,6 +265,30 @@ pub fn impl_sqlx_model(ast: &syn::DeriveInput) -> syn::Result<TokenStream> {
         }
     };
     let (default_limit, max_limit) = (config.default_limit, config.max_limit);
+    let list_body = if config.filter {
+        // the query is built at runtime, its conditions and its order depending on the fields set
+        let select = format!("SELECT * FROM {}{}", table, if config.soft_delete { " WHERE deleted_at IS NULL" } else { "" });
+        let soft_delete = config.soft_delete;
+        let sqlx_db = db.sqlx_type();
+        quote! {
+            let mut qb = ::octopux::__private::sqlx::QueryBuilder::<#sqlx_db>::new(#select);
+            let mut has_where = #soft_delete;
+            ::octopux::SqlxFilter::<#sqlx_db>::push_filters(query, &mut qb, &mut has_where);
+            if !::octopux::SqlxFilter::<#sqlx_db>::push_order_by(query, &mut qb)? {
+                qb.push(" ORDER BY id");
+            }
+            qb.push(" LIMIT ").push_bind(limit).push(" OFFSET ").push_bind(offset);
+            let models = qb.build_query_as::<#name>().fetch_all(&state.#pool).await?;
+        }
+    } else {
+        quote! {
+            let models = ::octopux::__private::sqlx::query_as::<_, #name>(#list_sql)
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(&state.#pool)
+                .await?;
+        }
+    };
     Ok(quote! {
         #[::octopux::__private::async_trait]
         impl ::octopux::Model<#id, #find_query, #list_query, ::std::vec::Vec<#name>, #delete_query, #name, #app_state> for #name {
@@ -273,11 +302,7 @@ pub fn impl_sqlx_model(ast: &syn::DeriveInput) -> syn::Result<TokenStream> {
             async fn list(query: &#list_query, state: &#app_state) -> ::octopux::anyhow::Result<::std::vec::Vec<#name>> {
                 let offset = query.offset.unwrap_or(0) as i64;
                 let limit = query.limit.map_or(#default_limit, |l| (l as i64).min(#max_limit));
-                let models = ::octopux::__private::sqlx::query_as::<_, #name>(#list_sql)
-                    .bind(limit)
-                    .bind(offset)
-                    .fetch_all(&state.#pool)
-                    .await?;
+                #list_body
                 Ok(models)
             }
             async fn delete(self: Self, _query: &#delete_query, state: &#app_state) -> ::octopux::anyhow::Result<#name> {
@@ -467,6 +492,28 @@ mod tests {
         assert!(out.contains("\"SELECT * FROM projects WHERE id = $1 AND deleted_at IS NULL\""), "{}", out);
         assert!(out.contains("\"SELECT * FROM projects WHERE deleted_at IS NULL ORDER BY id LIMIT $1 OFFSET $2\""), "{}", out);
         assert!(out.contains("\"UPDATE projects SET deleted_at = $1 WHERE id = $2 AND deleted_at IS NULL RETURNING *\""), "{}", out);
+    }
+
+    #[test]
+    fn filter_lists_with_the_conditions_and_the_order_of_the_query() {
+        let out = expand(impl_sqlx_model, syn::parse_quote! {
+            #[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]
+            #[sqlx_model(database = "postgres", soft_delete, filter)]
+            struct Project { id: Id, deleted_at: Option<DateTime<Utc>> }
+        });
+        assert!(out.contains("QueryBuilder :: < :: octopux :: __private :: sqlx :: Postgres > :: new (\"SELECT * FROM project WHERE deleted_at IS NULL\")"), "{}", out);
+        assert!(out.contains("let mut has_where = true"), "{}", out);
+        assert!(out.contains(":: octopux :: SqlxFilter :: < :: octopux :: __private :: sqlx :: Postgres > :: push_filters (query , & mut qb , & mut has_where)"), "{}", out);
+        assert!(out.contains("push_order_by (query , & mut qb) ?"), "{}", out);
+        assert!(out.contains("qb . push (\" ORDER BY id\")"), "{}", out);
+        assert!(!out.contains("LIMIT $1 OFFSET $2"), "{}", out);
+        let without_soft_delete = expand(impl_sqlx_model, syn::parse_quote! {
+            #[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]
+            #[sqlx_model(database = "sqlite", filter)]
+            struct Project { id: Id }
+        });
+        assert!(without_soft_delete.contains("new (\"SELECT * FROM project\")"), "{}", without_soft_delete);
+        assert!(without_soft_delete.contains("let mut has_where = false"), "{}", without_soft_delete);
     }
 
     #[test]
