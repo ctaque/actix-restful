@@ -35,7 +35,7 @@ Generate JSON CRUD endpoints for [Actix Web](https://actix.rs) from your structs
 ### The library
 
 ```bash
-cargo add octopux@0.18.2
+cargo add octopux@0.18.3
 cargo add actix-web
 cargo add serde --features derive
 ```
@@ -50,7 +50,7 @@ Optional features:
 | `openapi` | The documented routes (see [OpenAPI documentation](#openapi-documentation-with-apistos)) | `cargo add apistos --features chrono,swagger-ui`<br>`cargo add schemars --rename schemars --package apistos-schemars` |
 
 ```bash
-cargo add octopux@0.18.2 --features openapi,sqlx
+cargo add octopux@0.18.3 --features openapi,sqlx
 ```
 
 Add `chrono` (`cargo add chrono --features serde`) when your models have date fields or use `--timestamps`.
@@ -60,7 +60,7 @@ Add `chrono` (`cargo add chrono --features serde`) when your models have date fi
 Once per machine:
 
 ```bash
-cargo install octopux-cli@0.18.2   # installs the `octopux` binary
+cargo install octopux-cli@0.18.3   # installs the `octopux` binary
 cargo install sqlx-cli             # optional, for `sqlx migrate run`
 ```
 
@@ -174,7 +174,7 @@ The traits can be implemented by hand, see [`examples/simple`](examples/simple/s
 2) Add required dependancies :
 ```toml
 [dependencies]
-octopux = { version = "0.18.2", features = ["openapi"] }
+octopux = { version = "0.18.3", features = ["openapi"] }
 apistos = { version = "0.9", features = ["chrono", "swagger-ui"] }
 # apistos relies on its fork of schemars
 schemars = { package = "apistos-schemars", version = "0.8" }
