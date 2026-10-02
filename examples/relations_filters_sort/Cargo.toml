@@ -1,0 +1,20 @@
+[package]
+name = "my-api"
+version = "0.1.0"
+edition = "2024"
+
+[profile.release]
+strip = false
+
+[dependencies]
+octopux = { workspace = true, features = ["openapi", "sqlx"] }
+actix-web = "4.15.0"
+anyhow = "1.0.104"
+apistos = { version = "0.9.0", features = ["chrono", "swagger-ui"] }
+argon2 = "0.6.0"
+async-trait = "0.1.92"
+chrono = { version = "0.4.45", features = ["serde"] }
+schemars = { version = "0.8.22", package = "apistos-schemars", features = ["chrono"] }
+serde = { version = "1.0.229", features = ["derive"] }
+sqlx.workspace = true
+dotenvy = "0.15.7"
