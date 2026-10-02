@@ -1467,6 +1467,7 @@ dependencies = [
  "argon2",
  "async-trait",
  "chrono",
+ "dotenvy",
  "octopux",
  "serde",
  "sqlx",
