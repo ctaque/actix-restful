@@ -2,6 +2,11 @@
 name = "my-api"
 version = "0.1.0"
 edition = "2024"
+edition.workspace = true
+publish = false
+
+[package.metadata.release]
+release = false
 
 [profile.release]
 strip = false
