@@ -64,6 +64,10 @@ pub struct Cli {
     /// to mount models generated with --openapi, instead of a plain actix app
     #[structopt(long = "openapi", requires = "bootstrap")]
     openapi: bool,
+    /// With --bootstrap, also serves an async-graphql schema on POST /graphql and GraphiQL on GET /graphql,
+    /// to merge the roots of the models generated with --graphql
+    #[structopt(long = "graphql", requires = "bootstrap")]
+    graphql: bool,
     #[structopt(subcommand)]
     cmd: Option<Opt>,
 }
@@ -77,6 +81,10 @@ pub enum Opt {
         /// Derives JsonSchema and ApiComponent on the model types, for `gen_documented_endpoint!`
         #[structopt(long = "openapi")]
         openapi: bool,
+        /// Derives SimpleObject and InputObject on the model types and adds the async-graphql query and mutation
+        /// roots of the model, resolved by its Model, NewModel and UpdatableModel functions, requires --fields
+        #[structopt(long = "graphql", requires = "fields")]
+        graphql: bool,
         /// Interactively prompts for the fields of the model, added to the model, creatable and updatable structs
         #[structopt(long = "fields")]
         fields: bool,
@@ -138,6 +146,10 @@ pub enum Opt {
         /// Derives JsonSchema and ApiComponent on the query, and documents the route
         #[structopt(long = "openapi")]
         openapi: bool,
+        /// Adds the relation as a paginated field of the GraphQL type of the parent, in the `#[ComplexObject]`
+        /// of its model generated with --graphql, the child model must be generated with --graphql too
+        #[structopt(long = "graphql")]
+        graphql: bool,
         /// Fills the relation with sqlx queries on the `pool` of the AppState
         #[structopt(long = "sqlx")]
         sqlx: bool,
@@ -162,16 +174,16 @@ pub enum Opt {
     },
 }
 
-const BOOTSTRAP_MAIN: &str = r#"mod helpers;
+const BOOTSTRAP_MAIN: &str = r#"{graphql_attributes}mod helpers;
 use actix_web::web;
 use helpers::AppState;
-use sqlx::SqlitePool;
-
+use sqlx::SqlitePool;{graphql_imports}
+{graphql_roots}
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let pool = SqlitePool::connect("sqlite://data.db?mode=rwc").await.unwrap();
     // sqlx::migrate!().run(&pool).await.unwrap();
-    let state = web::Data::new(AppState { pool });
+    let state = web::Data::new(AppState { pool });{graphql_schema}
 
     actix_web::HttpServer::new(move || {
         actix_web::App::new()
@@ -182,7 +194,7 @@ async fn main() -> std::io::Result<()> {
                 // Mount your models here with `.configure(<model_name>::configure)`
                 // after declaring them with `mod <model_name>;`
             )
-            .app_data(state.clone())
+            .app_data(state.clone()){graphql_routes}
     })
     .bind(("127.0.0.1", 8085))?
     .run()
@@ -190,20 +202,20 @@ async fn main() -> std::io::Result<()> {
 }
 "#;
 
-const BOOTSTRAP_OPENAPI_MAIN: &str = r#"mod helpers;
+const BOOTSTRAP_OPENAPI_MAIN: &str = r#"{graphql_attributes}mod helpers;
 use actix_web::web;
 use apistos::app::{BuildConfig, OpenApiWrapper};
 use apistos::info::Info;
 use apistos::spec::Spec;
 use apistos::SwaggerUIConfig;
 use helpers::AppState;
-use sqlx::SqlitePool;
-
+use sqlx::SqlitePool;{graphql_imports}
+{graphql_roots}
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let pool = SqlitePool::connect("sqlite://data.db?mode=rwc").await.unwrap();
     // sqlx::migrate!().run(&pool).await.unwrap();
-    let state = web::Data::new(AppState { pool });
+    let state = web::Data::new(AppState { pool });{graphql_schema}
 
     actix_web::HttpServer::new(move || {
         let spec = Spec {
@@ -227,13 +239,78 @@ async fn main() -> std::io::Result<()> {
             .build_with(
                 "/openapi.json",
                 BuildConfig::default().with(SwaggerUIConfig::new(&"/swagger")),
-            )
+            ){graphql_routes}
     })
     .bind(("127.0.0.1", 8085))?
     .run()
     .await
 }
 "#;
+
+// MergedObject nests the roots it merges, those of a few dozen models overflow the default recursion limit
+const BOOTSTRAP_GRAPHQL_ATTRIBUTES: &str = "#![recursion_limit = \"512\"]\n\n";
+
+const BOOTSTRAP_GRAPHQL_IMPORTS: &str = r#"
+use async_graphql::http::GraphiQLSource;
+use async_graphql::{EmptyMutation, EmptySubscription, MergedObject, Object, Schema};
+use async_graphql_actix_web::GraphQL;"#;
+
+const BOOTSTRAP_GRAPHQL_ROOTS: &str = r#"
+// The version of the API, so that the query root has a field before the first model is merged
+#[derive(Default)]
+struct ApiQuery;
+
+#[Object]
+impl ApiQuery {
+    async fn api_version(&self) -> &'static str {
+        env!("CARGO_PKG_VERSION")
+    }
+}
+
+// The GraphQL queries, `octopux generate-model --graphql` merges the query root of the model here:
+// `struct Query(ApiQuery, <model_name>::<Model>Query, ...);`
+#[derive(MergedObject, Default)]
+struct Query(ApiQuery);
+
+// The GraphQL mutations, GraphQL refusing a mutation root without fields, `octopux generate-model --graphql` replaces it with:
+// `#[derive(MergedObject, Default)] struct Mutation(<model_name>::<Model>Mutation, ...);`
+type Mutation = EmptyMutation;
+
+async fn graphiql() -> actix_web::HttpResponse {
+    actix_web::HttpResponse::Ok()
+        .content_type("text/html; charset=utf-8")
+        .body(GraphiQLSource::build().endpoint("/graphql").finish())
+}
+"#;
+
+const BOOTSTRAP_GRAPHQL_SCHEMA: &str = r#"
+    // The resolvers of the models read the state from the data of the schema
+    let schema = Schema::build(Query::default(), Mutation::default(), EmptySubscription)
+        .data(state.clone())
+        .finish();"#;
+
+const BOOTSTRAP_GRAPHQL_ROUTES: &str = r#"
+            // GraphQL queries on POST /graphql, GraphiQL on GET /graphql
+            .service(
+                web::resource("/graphql")
+                    .route(web::post().to(GraphQL::new(schema.clone())))
+                    .route(web::get().to(graphiql)),
+            )"#;
+
+// src/main.rs of --bootstrap, on an apistos app with `openapi`, serving the GraphQL schema with `graphql`
+fn render_bootstrap_main(openapi: bool, graphql: bool) -> String {
+    let tpl = if openapi { BOOTSTRAP_OPENAPI_MAIN } else { BOOTSTRAP_MAIN };
+    let [attributes, imports, roots, schema, routes] = if graphql {
+        [BOOTSTRAP_GRAPHQL_ATTRIBUTES, BOOTSTRAP_GRAPHQL_IMPORTS, BOOTSTRAP_GRAPHQL_ROOTS, BOOTSTRAP_GRAPHQL_SCHEMA, BOOTSTRAP_GRAPHQL_ROUTES]
+    } else {
+        ["", "", "", "", ""]
+    };
+    tpl.replace("{graphql_attributes}", attributes)
+        .replace("{graphql_imports}", imports)
+        .replace("{graphql_roots}", roots)
+        .replace("{graphql_schema}", schema)
+        .replace("{graphql_routes}", routes)
+}
 
 const BOOTSTRAP_HELPERS: &str = r#"use sqlx::SqlitePool;
 
@@ -268,6 +345,85 @@ const ENDPOINT_CONFIGURE: &str = r#"
 "#;
 
 const OPENAPI_DERIVES: &str = ", JsonSchema, ApiComponent";
+
+const GRAPHQL_IMPORTS: &str = r#"
+    use async_graphql::{ComplexObject, Context, InputObject, Object, SimpleObject};"#;
+
+// Line of the `#[ComplexObject]` of a model generated with --graphql after which
+// `generate-relation --graphql` inserts the field of the relation
+const GRAPHQL_RELATIONS_MARKER: &str = "        // Relations generated with `octopux generate-relation --graphql`, inserted below";
+
+// The model traits called by the resolvers, implemented by the sqlx derives
+const GRAPHQL_SQLX_TRAIT_IMPORTS: &str = "
+        Model,
+        NewModel,
+        UpdatableModel,";
+
+// Query and mutation roots of the model, delegating to the functions of the model traits as the REST routes do,
+// `update` and `delete` look the entity up first, so that an unknown id fails as ENTITY_NOT_FOUND
+const GRAPHQL_RESOLVERS: &str = r#"
+
+    // Fields of the GraphQL {entity} type resolved by functions, its has-many relations
+    #[ComplexObject]
+    impl {entity} {
+{relations_marker}
+    }
+
+    // GraphQL queries of the {entity_lower_case} model (async-graphql), to merge into the query root of the schema:
+    // `#[derive(MergedObject, Default)] struct Query({module}::{entity}Query, ...);`
+    #[derive(Default)]
+    pub struct {entity}Query;
+
+    #[Object]
+    impl {entity}Query {
+        async fn {module}(&self, ctx: &Context<'_>, id: Id) -> async_graphql::Result<{entity}> {
+            find(id, app_state(ctx)?).await
+        }
+
+        async fn {plural}(&self, ctx: &Context<'_>{list_args}) -> async_graphql::Result<Vec<{entity}>> {
+            Ok({entity}::list(&ListQuery {{list_query}}, app_state(ctx)?).await?)
+        }
+    }
+
+    // GraphQL mutations of the {entity_lower_case} model, to merge into the mutation root of the schema:
+    // `#[derive(MergedObject, Default)] struct Mutation({module}::{entity}Mutation, ...);`
+    #[derive(Default)]
+    pub struct {entity}Mutation;
+
+    #[Object]
+    impl {entity}Mutation {
+        async fn create_{module}(&self, ctx: &Context<'_>, input: New{entity}) -> async_graphql::Result<{entity}> {
+            Ok(input.save(&SaveQuery {}, app_state(ctx)?).await?)
+        }
+
+        async fn update_{module}(&self, ctx: &Context<'_>, input: Updatable{entity}) -> async_graphql::Result<{entity}> {
+            let state = app_state(ctx)?;
+            let id = input.id;
+            find(id, state).await?;
+            input.update(&UpdateQuery {}, state).await?;
+            find(id, state).await
+        }
+
+        async fn delete_{module}(&self, ctx: &Context<'_>, id: Id) -> async_graphql::Result<{entity}> {
+            let state = app_state(ctx)?;
+            let model = find(id, state).await?;
+            Ok(model.delete(&DeleteQuery {}, state).await?)
+        }
+    }
+
+    // Looks the {entity_lower_case} up, any error being ENTITY_NOT_FOUND as for the REST routes
+    async fn find(id: Id, state: &AppState) -> async_graphql::Result<{entity}> {
+        match {entity}::find(id, &FindQuery::default(), state).await {
+            Ok(model) => Ok(*model),
+            Err(_) => Err(async_graphql::Error::new("ENTITY_NOT_FOUND")),
+        }
+    }
+
+    // The state shared with the REST routes, given to the schema with `Schema::build(...).data(state.clone())`
+    fn app_state<'a>(ctx: &Context<'a>) -> async_graphql::Result<&'a AppState> {
+        Ok(ctx.data::<actix_web::web::Data<AppState>>()?.get_ref())
+    }
+"#;
 
 // Columns added by --timestamps, all nullable, `updated_at` is also part of the updatable struct
 const TIMESTAMP_COLUMNS: [&str; 3] = ["created_at", "updated_at", "deleted_at"];
@@ -1337,7 +1493,7 @@ fn sqlx_model_attribute(dialect: Dialect, model: Option<&str>, timestamps: bool,
     format!("\n    #[sqlx_model({})]", args.join(", "))
 }
 
-fn render_model(name: &str, openapi: bool, sqlx: bool, timestamps: bool, fields: &[Field], dialect: Dialect) -> String {
+fn render_model(name: &str, openapi: bool, graphql: bool, sqlx: bool, timestamps: bool, fields: &[Field], dialect: Dialect) -> String {
     let (imports, derives, configure) = if openapi {
         (OPENAPI_IMPORTS, OPENAPI_DERIVES, OPENAPI_CONFIGURE)
     } else {
@@ -1358,8 +1514,9 @@ fn render_model(name: &str, openapi: bool, sqlx: bool, timestamps: bool, fields:
     };
     // with --sqlx, the derives implement the model traits, left to fill otherwise
     let tpl = if sqlx {
+        let trait_imports = if graphql { format!("{}{}", SQLX_TRAIT_IMPORTS, GRAPHQL_SQLX_TRAIT_IMPORTS) } else { SQLX_TRAIT_IMPORTS.to_string() };
         MODEL_TPL
-            .replace("{trait_imports}", SQLX_TRAIT_IMPORTS)
+            .replace("{trait_imports}", &trait_imports)
             .replace("{model_impl}", "")
             .replace("{new_impl}", "")
             .replace("{updatable_impl}", "")
@@ -1387,7 +1544,26 @@ fn render_model(name: &str, openapi: bool, sqlx: bool, timestamps: bool, fields:
             .replace("{new_sqlx}", "")
             .replace("{updatable_sqlx}", "")
     };
-    tpl.replace("{model_fields}", &model_fields)
+    let (graphql_imports, graphql_output_derives, graphql_input_derives, graphql_resolvers) = if graphql {
+        // the list query of --sqlx paginates, its fields are the arguments of the list resolver
+        let (list_args, list_query) = if sqlx { (", offset: Option<usize>, limit: Option<usize>", " offset, limit ") } else { ("", "") };
+        let module = to_snake_case(name);
+        let resolvers = GRAPHQL_RESOLVERS
+            .replace("{list_args}", list_args)
+            .replace("{list_query}", list_query)
+            .replace("{plural}", &pluralize(&module))
+            .replace("{module}", &module)
+            .replace("{relations_marker}", GRAPHQL_RELATIONS_MARKER);
+        (GRAPHQL_IMPORTS, ", SimpleObject", ", InputObject", resolvers)
+    } else {
+        ("", "", "", String::new())
+    };
+    tpl.replace("{graphql_resolvers}", &graphql_resolvers)
+        .replace("{graphql_complex}", if graphql { "\n    #[graphql(complex)]" } else { "" })
+        .replace("{graphql_imports}", graphql_imports)
+        .replace("{graphql_output_derives}", graphql_output_derives)
+        .replace("{graphql_input_derives}", graphql_input_derives)
+        .replace("{model_fields}", &model_fields)
         .replace("{updatable_fields}", &updatable_fields)
         .replace("{chrono_imports}", &chrono_imports)
         .replace("{new_fields}", new_fields)
@@ -1455,7 +1631,7 @@ const MODEL_TPL: &str = r#"
     use crate::AppState;
     use serde::{Serialize, Deserialize};
     use octopux::{{trait_imports}
-    };{chrono_imports}{openapi_imports}
+    };{chrono_imports}{openapi_imports}{graphql_imports}
 
     #[derive(Default, Deserialize{openapi_derives})]
     pub struct FindQuery {}
@@ -1469,23 +1645,23 @@ const MODEL_TPL: &str = r#"
     pub struct UpdateQuery {}
     pub type Id = {id_type};
 
-    #[derive(Default, Serialize, Deserialize{openapi_derives}{model_derives})]
+    #[derive(Default, Serialize, Deserialize{openapi_derives}{graphql_output_derives}{model_derives})]
     #[http_find_list_delete(Id, FindQuery, ListQuery, DeleteQuery, AppState)]{model_sqlx}
-    #[octopux_info(path = "{entity_lower_case}")]
+    #[octopux_info(path = "{entity_lower_case}")]{graphql_complex}
     pub struct {entity} {
         pub id: Id,{model_fields}
     }{model_impl}
 
-    #[derive(Serialize, Deserialize{openapi_derives}{new_derives})]
+    #[derive(Serialize, Deserialize{openapi_derives}{graphql_input_derives}{new_derives})]
     #[http_create(SaveQuery, AppState)]{new_sqlx}
     pub struct New{entity} {{new_fields}
     }{new_impl}
 
-    #[derive(Serialize, Deserialize{openapi_derives}{updatable_derives})]
+    #[derive(Serialize, Deserialize{openapi_derives}{graphql_input_derives}{updatable_derives})]
     #[http_update(Id, UpdateQuery, {entity}, FindQuery, AppState)]{updatable_sqlx}
     pub struct Updatable{entity} {
         pub id: Id,{updatable_fields}
-    }{updatable_impl}{openapi_configure}
+    }{updatable_impl}{openapi_configure}{graphql_resolvers}
     "#;
 
 // Plural of the last word of a snake_case name: `book` gives `books`, `category` gives `categories`
@@ -1624,7 +1800,44 @@ fn relation_sqlx_body(relation: &Relation, timestamps: bool, dialect: Dialect) -
     )
 }
 
-fn render_relation(relation: &Relation, openapi: bool, sqlx: bool, timestamps: bool, dialect: Dialect) -> String {
+// Resolver of the GraphQL field of the relation, called by the `#[ComplexObject]` of the parent
+const RELATION_GRAPHQL_RESOLVER: &str = r#"
+
+    // Resolves the `{relation_name}` field of the GraphQL {parent} type, declared in the `#[ComplexObject]` of its model
+    pub async fn resolve(ctx: &async_graphql::Context<'_>, id: Id, offset: Option<usize>, limit: Option<usize>) -> async_graphql::Result<Vec<{child}>> {
+        let state = ctx.data::<actix_web::web::Data<AppState>>()?;
+        let children = {relation}::list_related(id, &{relation}Query { offset, limit }, state.get_ref()).await?;
+        // the parent was resolved, so it exists
+        Ok(children.unwrap_or_default())
+    }"#;
+
+// Field of the relation in the `#[ComplexObject]` of the parent model
+const RELATION_GRAPHQL_FIELD: &str = r#"
+        /// The {relation_name} of the {parent_lower_case}, paginated
+        async fn {relation_name}(&self, ctx: &Context<'_>, offset: Option<usize>, limit: Option<usize>) -> async_graphql::Result<Vec<crate::{child_module}::{child}>> {
+            crate::{module}::resolve(ctx, self.id, offset, limit).await
+        }"#;
+
+fn relation_graphql_field(relation: &Relation) -> String {
+    RELATION_GRAPHQL_FIELD
+        .replace("{relation_name}", &relation.name)
+        .replace("{parent_lower_case}", &relation.parent.to_lowercase())
+        .replace("{child_module}", &to_snake_case(&relation.child))
+        .replace("{child}", &relation.child)
+        .replace("{module}", &relation.module())
+}
+
+// The parent model `source` with the field of the relation inserted after the marker of its `#[ComplexObject]`,
+// unchanged when the field is already there, None without the marker (a model generated without --graphql)
+fn with_relation_field(source: &str, relation: &Relation) -> Option<String> {
+    let at = source.find(GRAPHQL_RELATIONS_MARKER)? + GRAPHQL_RELATIONS_MARKER.len();
+    if source.contains(&format!("crate::{}::resolve(", relation.module())) {
+        return Some(source.to_string());
+    }
+    Some(format!("{}{}{}", &source[..at], relation_graphql_field(relation), &source[at..]))
+}
+
+fn render_relation(relation: &Relation, openapi: bool, graphql: bool, sqlx: bool, timestamps: bool, dialect: Dialect) -> String {
     let (imports, derives, service_config, endpoint) = if openapi {
         (
             "\n    use apistos::ApiComponent;\n    use schemars::JsonSchema;\n    use octopux::gen_documented_relation_endpoint;",
@@ -1651,6 +1864,7 @@ fn render_relation(relation: &Relation, openapi: bool, sqlx: bool, timestamps: b
         )
     };
     RELATION_TPL
+        .replace("{graphql_resolver}", if graphql { RELATION_GRAPHQL_RESOLVER } else { "" })
         .replace("{body}", &body)
         .replace("{query}", query)
         .replace("{state}", state)
@@ -1717,14 +1931,97 @@ const RELATION_TPL: &str = r#"
     // in the same scope as the {parent_lower_case} routes
     pub fn configure(cfg: &mut {service_config}) {
         {endpoint}!({relation})(cfg)
-    }
+    }{graphql_resolver}
     "#;
+
+// Inserts the GraphQL field of the relation in the parent model, or explains how to add it
+// when the parent model is missing or was generated without --graphql
+fn add_relation_field(root: &Path, relation: &Relation) -> Result<(), Error> {
+    let path = source_path(root, &format!("{}.rs", to_snake_case(&relation.parent)));
+    let source = fs::read_to_string(root.join(&path)).ok();
+    match source.as_deref().and_then(|source| with_relation_field(source, relation).map(|patched| (source, patched))) {
+        Some((source, patched)) if patched == source => {
+            println!("{}", success(&format!("The GraphQL field `{}` is already declared in {}", relation.name, path)));
+        }
+        Some((_, patched)) => {
+            fs::write(root.join(&path), patched)?;
+            println!("{}", success(&format!("Added the GraphQL field `{}` to the {} type in {}", relation.name, relation.parent, path)));
+        }
+        None => {
+            println!(
+                "{}\n{}",
+                warning(&format!("{} has no `#[ComplexObject]` of a model generated with --graphql, add this field to the `#[ComplexObject]` of {}:", path, relation.parent)),
+                relation_graphql_field(relation)
+            );
+        }
+    }
+    Ok(())
+}
+
+// `source` with `root` appended to the tuple struct `name` (`struct Query(ApiQuery, ...);`),
+// unchanged when it is already there, None when the struct is not declared
+fn with_merged_root(source: &str, name: &str, root: &str) -> Option<String> {
+    let start = source.find(&format!("\nstruct {}(", name))?;
+    let end = start + source[start..].find(");")?;
+    if source[start..end].split(|c: char| c == '(' || c == ',').any(|item| item.trim() == root) {
+        return Some(source.to_string());
+    }
+    Some(format!("{}, {}{}", &source[..end], root, &source[end..]))
+}
+
+// The src/main.rs of --bootstrap --graphql `source` with the query and mutation roots of the model merged into
+// the roots of the schema, the `EmptyMutation` of the bootstrap being replaced by the first mutation root,
+// None without a `Query` root merged with MergedObject
+fn with_graphql_roots(source: &str, module: &str, entity: &str) -> Option<String> {
+    let query = format!("{}::{}Query", module, entity);
+    let mutation = format!("{}::{}Mutation", module, entity);
+    let source = with_merged_root(source, "Query", &query)?;
+    if let Some(patched) = with_merged_root(&source, "Mutation", &mutation) {
+        return Some(patched);
+    }
+    let empty = "type Mutation = EmptyMutation;";
+    if !source.contains(empty) {
+        return None;
+    }
+    Some(
+        source
+            .replace(empty, &format!("#[derive(MergedObject, Default)]\nstruct Mutation({});", mutation))
+            .replace("{EmptyMutation, ", "{"),
+    )
+}
+
+// Merges the query and mutation roots of the model into the schema of src/main.rs,
+// printing them to merge by hand when src/main.rs was not bootstrapped with --graphql
+fn add_graphql_roots(root: &Path, module: &str, entity: &str) -> Result<(), Error> {
+    let path = source_path(root, "main.rs");
+    let source = fs::read_to_string(root.join(&path)).ok();
+    match source.as_deref().and_then(|source| with_graphql_roots(source, module, entity).map(|patched| (source, patched))) {
+        Some((source, patched)) if patched == source => {
+            println!("{}", success(&format!("The GraphQL roots of {} are already merged in {}", entity, path)));
+        }
+        Some((_, patched)) => {
+            fs::write(root.join(&path), patched)?;
+            println!("{}", success(&format!("Merged `{m}::{e}Query` and `{m}::{e}Mutation` into the roots of the schema in {p}", m = module, e = entity, p = path)));
+        }
+        None => {
+            println!(
+                "{}",
+                highlight(&format!(
+                    "  Merge `{module}::{name}Query` and `{module}::{name}Mutation` into the roots of the async-graphql schema, built with `.data(state.clone())`, its dependencies are added with `cargo add async-graphql@7 --features chrono` and `cargo add async-graphql-actix-web@7`",
+                    module = module,
+                    name = entity
+                ))
+            );
+        }
+    }
+    Ok(())
+}
 
 // Writes src/main.rs and src/helpers.rs under `root`, only if src/helpers.rs does not exist,
 // an existing src/main.rs (such as the one of `cargo init`) is only overwritten once confirmed
-fn bootstrap<R: BufRead, W: Write>(root: &Path, openapi: bool, input: &mut R, output: &mut W) -> Result<(), Error> {
-    let main_content = if openapi { BOOTSTRAP_OPENAPI_MAIN } else { BOOTSTRAP_MAIN };
-    let files = [("main.rs", main_content), ("helpers.rs", BOOTSTRAP_HELPERS)];
+fn bootstrap<R: BufRead, W: Write>(root: &Path, openapi: bool, graphql: bool, input: &mut R, output: &mut W) -> Result<(), Error> {
+    let main_content = render_bootstrap_main(openapi, graphql);
+    let files = [("main.rs", main_content.as_str()), ("helpers.rs", BOOTSTRAP_HELPERS)];
     let src = root.join("src");
     let helpers = src.join("helpers.rs");
     if helpers.exists() {
@@ -1743,17 +2040,21 @@ fn bootstrap<R: BufRead, W: Write>(root: &Path, openapi: bool, input: &mut R, ou
     println!(
         "{}",
         success(&format!(
-            "Successfully bootstrapped src/main.rs and src/helpers.rs, generate a model with `octopux generate-model --name <Model>{}`, then declare it with `mod <model>;` and mount it with `.configure(<model>::configure)` in the v1 scope of src/main.rs",
-            if openapi { " --openapi" } else { "" }
+            "Successfully bootstrapped src/main.rs and src/helpers.rs, generate a model with `octopux generate-model --name <Model>{}{}`, then declare it with `mod <model>;` and mount it with `.configure(<model>::configure)` in the v1 scope of src/main.rs",
+            if openapi { " --openapi" } else { "" },
+            if graphql { " --graphql --fields" } else { "" }
         ))
     );
+    if graphql {
+        println!("{}", highlight("  Its `<Model>Query` and `<Model>Mutation` are merged into the `Query` and `Mutation` roots of src/main.rs, GraphiQL is served on GET /graphql"));
+    }
     Ok(())
 }
 
 // `cargo add` arguments of the dependencies of the bootstrapped files and of the generated models,
 // octopux is taken from the tag of the CLI version in its repository, so that the generated code matches its macros,
-// apistos and schemars are only added with --openapi
-fn bootstrap_dependencies(openapi: bool) -> Vec<Vec<String>> {
+// apistos and schemars are only added with --openapi, async-graphql and its actix integration with --graphql
+fn bootstrap_dependencies(openapi: bool, graphql: bool) -> Vec<Vec<String>> {
     let tag = format!("v{}", env!("CARGO_PKG_VERSION"));
     let features = if openapi { "openapi,sqlx" } else { "sqlx" };
     let mut deps = vec![
@@ -1763,6 +2064,11 @@ fn bootstrap_dependencies(openapi: bool) -> Vec<Vec<String>> {
     if openapi {
         deps.push(vec!["apistos@0.9", "--features", "chrono,swagger-ui"]);
         deps.push(vec!["apistos-schemars@0.8", "--rename", "schemars"]);
+    }
+    if graphql {
+        // the chrono scalars, not enabled by default
+        deps.push(vec!["async-graphql@7", "--features", "chrono"]);
+        deps.push(vec!["async-graphql-actix-web@7"]);
     }
     deps.extend([
         vec!["serde@1", "--features", "derive"],
@@ -1779,12 +2085,12 @@ fn confirm<R: BufRead, W: Write>(input: &mut R, output: &mut W, message: &str) -
 }
 
 // Runs `cargo add` in `root` for each dependency of the bootstrapped project
-fn install_dependencies(root: &Path, openapi: bool) -> Result<(), Error> {
+fn install_dependencies(root: &Path, openapi: bool, graphql: bool) -> Result<(), Error> {
     if !root.join("Cargo.toml").exists() {
         eprintln!("{}", failure(&format!("No Cargo.toml in {}, dependencies not installed, create the crate with `cargo init` first", root.display())));
         process::exit(1);
     }
-    for args in bootstrap_dependencies(openapi) {
+    for args in bootstrap_dependencies(openapi, graphql) {
         let status = process::Command::new("cargo").arg("add").args(&args).current_dir(root).status()?;
         if !status.success() {
             eprintln!("{}", failure(&format!("`cargo add {}` failed, remaining dependencies not installed", args.join(" "))));
@@ -1804,9 +2110,9 @@ fn main() -> Result<(), Error> {
     if cli.bootstrap {
         let root = std::env::current_dir()?;
         let mut input = io::stdin().lock();
-        bootstrap(&root, cli.openapi, &mut input, &mut io::stdout())?;
+        bootstrap(&root, cli.openapi, cli.graphql, &mut input, &mut io::stdout())?;
         if confirm(&mut input, &mut io::stdout(), "Install the dependencies with `cargo add`?")? {
-            install_dependencies(&root, cli.openapi)?;
+            install_dependencies(&root, cli.openapi, cli.graphql)?;
         }
     }
     match cli.cmd {
@@ -1822,7 +2128,7 @@ fn main() -> Result<(), Error> {
 
 fn run(opt: Opt) -> Result<(), Error> {
     match opt {
-        Opt::GenerateModel { name, openapi, fields, sqlx, migration, foreign_keys, unique, sqlite: _, postgres, mysql, timestamps, force } => {
+        Opt::GenerateModel { name, openapi, graphql, fields, sqlx, migration, foreign_keys, unique, sqlite: _, postgres, mysql, timestamps, force } => {
             let dialect = Dialect::from_flags(postgres, mysql);
             let module = to_snake_case(&name);
             let path = source_path(&std::env::current_dir()?, &format!("{}.rs", module));
@@ -1841,6 +2147,11 @@ fn run(opt: Opt) -> Result<(), Error> {
             // the INSERT and UPDATE queries need at least one column
             if sqlx && fields.is_empty() {
                 eprintln!("{}", failure(&format!("--sqlx needs at least one field, model {} not generated", name)));
+                process::exit(1);
+            }
+            // GraphQL refuses an input object without fields, as the creatable struct would be
+            if graphql && fields.is_empty() {
+                eprintln!("{}", failure(&format!("--graphql needs at least one field, model {} not generated", name)));
                 process::exit(1);
             }
             let sql = if migration {
@@ -1864,8 +2175,11 @@ fn run(opt: Opt) -> Result<(), Error> {
                     process::exit(1);
                 }
             }
-            fs::write(&path, with_header("//", &render_model(&name, openapi, sqlx, timestamps, &fields, dialect)))?;
+            fs::write(&path, with_header("//", &render_model(&name, openapi, graphql, sqlx, timestamps, &fields, dialect)))?;
             println!("{}", success(&format!("Successfully generated model {}, declare it with `mod {};`", path, module)));
+            if graphql {
+                add_graphql_roots(&std::env::current_dir()?, &module, &name)?;
+            }
             if let Some((migration, sql)) = migration {
                 write_migration(&migration, &sql)?;
                 if overwrites {
@@ -1877,7 +2191,7 @@ fn run(opt: Opt) -> Result<(), Error> {
             }
             Ok(())
         }
-        Opt::GenerateRelation { parent, child, name, foreign_key, through, child_key, openapi, sqlx, migration, sqlite: _, postgres, mysql, timestamps, force } => {
+        Opt::GenerateRelation { parent, child, name, foreign_key, through, child_key, openapi, graphql, sqlx, migration, sqlite: _, postgres, mysql, timestamps, force } => {
             let dialect = Dialect::from_flags(postgres, mysql);
             let relation = Relation::new(parent, child, name, foreign_key, through, child_key);
             let columns = [Some(&relation.name), Some(&relation.foreign_key), relation.through.as_ref().map(|t| &t.child_key)];
@@ -1888,7 +2202,7 @@ fn run(opt: Opt) -> Result<(), Error> {
             let module = relation.module();
             let path = source_path(&std::env::current_dir()?, &format!("{}.rs", module));
             refuse_overwrite(&path, force, "relation");
-            fs::write(&path, with_header("//", &render_relation(&relation, openapi, sqlx, timestamps, dialect)))?;
+            fs::write(&path, with_header("//", &render_relation(&relation, openapi, graphql, sqlx, timestamps, dialect)))?;
             println!(
                 "{}",
                 success(&format!(
@@ -1896,6 +2210,9 @@ fn run(opt: Opt) -> Result<(), Error> {
                     path, module, module, relation.parent.to_lowercase()
                 ))
             );
+            if graphql {
+                add_relation_field(&std::env::current_dir()?, &relation)?;
+            }
             if migration {
                 let (table, column) = relation.foreign_key_column();
                 write_migration(&migration_path(&format!("index_{}_{}", table, column))?, &render_relation_migration(&relation, dialect))?;
@@ -1909,7 +2226,7 @@ fn run(opt: Opt) -> Result<(), Error> {
 mod tests {
     use super::{
         migration_timestamp, migrations_dir, source_path, parse_field_type, pluralize, read_fields, render_migration, render_model, render_relation, render_relation_migration, to_camel_case,
-        to_snake_case, bootstrap, bootstrap_dependencies, changes_summary, confirm, confirm_save, generated_header, migration_tables, parse_tables, postgres_column_type, url_dialect,
+        to_snake_case, bootstrap, bootstrap_dependencies, render_bootstrap_main, changes_summary, confirm, confirm_save, generated_header, migration_tables, parse_tables, postgres_column_type, url_dialect,
         Cli, Column, Dialect, Field, Opt, Reference, Relation, Table, Through, LOGO,
     };
     use structopt::StructOpt;
@@ -2142,7 +2459,7 @@ CREATE INDEX book_idx ON book (code);
 
     #[test]
     fn default_model_has_no_openapi_derives_and_an_undocumented_configure() {
-        let model = render_model("Project", false, false, false, &[], Dialect::Sqlite);
+        let model = render_model("Project", false, false, false, false, &[], Dialect::Sqlite);
         assert!(!model.contains("JsonSchema"));
         assert!(!model.contains("ApiComponent"));
         assert!(model.contains("use octopux::gen_endpoint;"));
@@ -2155,7 +2472,7 @@ CREATE INDEX book_idx ON book (code);
 
     #[test]
     fn openapi_model_derives_schemas_on_every_route_type() {
-        let model = render_model("Project", true, false, false, &[], Dialect::Sqlite);
+        let model = render_model("Project", true, false, false, false, &[], Dialect::Sqlite);
         assert!(model.contains("use apistos::ApiComponent;"));
         assert!(model.contains("use schemars::JsonSchema;"));
         assert!(model.contains("use octopux::gen_documented_endpoint;"));
@@ -2169,7 +2486,7 @@ CREATE INDEX book_idx ON book (code);
 
     #[test]
     fn model_only_depends_on_octopux_and_the_app_state() {
-        let model = render_model("Project", false, false, false, &[], Dialect::Sqlite);
+        let model = render_model("Project", false, false, false, false, &[], Dialect::Sqlite);
         assert!(model.contains("use crate::AppState;"));
         assert!(model.contains("        octopux_info,\n        anyhow::Result,\n        async_trait,\n    };"));
         assert!(!model.contains("octopux_derive"));
@@ -2179,7 +2496,7 @@ CREATE INDEX book_idx ON book (code);
 
     #[test]
     fn model_without_fields_keeps_empty_structs() {
-        let model = render_model("Project", false, false, false, &[], Dialect::Sqlite);
+        let model = render_model("Project", false, false, false, false, &[], Dialect::Sqlite);
         assert!(model.contains("pub type Id = i64;"));
         assert!(model.contains("pub struct Project {\n        pub id: Id,\n    }"));
         assert!(model.contains("pub struct NewProject {\n\n    }"));
@@ -2193,7 +2510,7 @@ CREATE INDEX book_idx ON book (code);
             field("title", "String"),
             field("stars", "i32"),
         ];
-        let model = render_model("Project", false, false, false, &fields, Dialect::Sqlite);
+        let model = render_model("Project", false, false, false, false, &fields, Dialect::Sqlite);
         assert!(model.contains("pub struct Project {\n        pub id: Id,\n        pub title: String,\n        pub stars: i32,\n    }"));
         assert!(model.contains("pub struct NewProject {\n        pub title: String,\n        pub stars: i32,\n    }"));
         assert!(model.contains("pub struct UpdatableProject {\n        pub id: Id,\n        pub title: String,\n        pub stars: i32,\n    }"));
@@ -2307,7 +2624,7 @@ CREATE INDEX book_idx ON book (code);
             field("title", "String"),
             field("stars", "i32"),
         ];
-        let model = render_model("Project", false, true, false, &fields, Dialect::Sqlite);
+        let model = render_model("Project", false, false, true, false, &fields, Dialect::Sqlite);
         assert!(!super::EMPTY_BODIES.iter().any(|body| model.contains(body)));
         assert!(!model.contains("impl "));
         assert!(!model.contains("async_trait"));
@@ -2320,13 +2637,57 @@ CREATE INDEX book_idx ON book (code);
     }
 
     #[test]
+    fn graphql_requires_fields() {
+        assert!(Opt::from_iter_safe(&["octopux", "generate-model", "--name", "Project", "--graphql"]).is_err());
+        assert!(Opt::from_iter_safe(&["octopux", "generate-model", "--name", "Project", "--graphql", "--fields"]).is_ok());
+    }
+
+    #[test]
+    fn default_model_has_no_graphql() {
+        let model = render_model("Project", false, false, false, false, &[field("title", "String")], Dialect::Sqlite);
+        assert!(!model.contains("async_graphql"));
+        assert!(!model.contains("SimpleObject") && !model.contains("InputObject"));
+        assert!(!model.contains("{graphql"));
+    }
+
+    #[test]
+    fn graphql_model_derives_the_graphql_types_and_resolvers() {
+        let fields = vec![field("title", "String")];
+        let model = render_model("BookAuthor", true, true, false, false, &fields, Dialect::Sqlite);
+        assert!(model.contains("use async_graphql::{ComplexObject, Context, InputObject, Object, SimpleObject};"));
+        assert!(model.contains("#[derive(Default, Serialize, Deserialize, JsonSchema, ApiComponent, SimpleObject, HttpFindListDelete)]"));
+        assert!(model.contains("#[derive(Serialize, Deserialize, JsonSchema, ApiComponent, InputObject, HttpCreate)]\n    #[http_create(SaveQuery, AppState)]\n    pub struct NewBookAuthor {"));
+        assert!(model.contains("#[derive(Serialize, Deserialize, JsonSchema, ApiComponent, InputObject, HttpUpdate)]"));
+        assert!(model.contains("pub struct BookAuthorQuery;"));
+        assert!(model.contains("pub struct BookAuthorMutation;"));
+        assert!(model.contains("`#[derive(MergedObject, Default)] struct Query(book_author::BookAuthorQuery, ...);`"));
+        assert!(model.contains("async fn book_author(&self, ctx: &Context<'_>, id: Id) -> async_graphql::Result<BookAuthor> {"));
+        assert!(model.contains("async fn book_authors(&self, ctx: &Context<'_>) -> async_graphql::Result<Vec<BookAuthor>> {\n            Ok(BookAuthor::list(&ListQuery {}, app_state(ctx)?).await?)"));
+        assert!(model.contains("async fn create_book_author(&self, ctx: &Context<'_>, input: NewBookAuthor)"));
+        assert!(model.contains("async fn update_book_author(&self, ctx: &Context<'_>, input: UpdatableBookAuthor)"));
+        assert!(model.contains("async fn delete_book_author(&self, ctx: &Context<'_>, id: Id)"));
+        // the traits are already imported to be implemented
+        assert_eq!(model.matches("        Model,\n").count(), 1);
+        assert!(!model.contains("{graphql") && !model.contains("{list_") && !model.contains("{plural}") && !model.contains("{module}"));
+    }
+
+    #[test]
+    fn graphql_sqlx_model_paginates_the_list_and_imports_the_model_traits() {
+        let fields = vec![field("title", "String")];
+        let model = render_model("Project", false, true, true, false, &fields, Dialect::Sqlite);
+        assert!(model.contains("        SqlxUpdatableModel,\n        octopux_info,\n        Model,\n        NewModel,\n        UpdatableModel,\n    };"));
+        assert!(model.contains("async fn projects(&self, ctx: &Context<'_>, offset: Option<usize>, limit: Option<usize>) -> async_graphql::Result<Vec<Project>> {\n            Ok(Project::list(&ListQuery { offset, limit }, app_state(ctx)?).await?)"));
+        assert!(model.contains("#[derive(Default, Serialize, Deserialize, SimpleObject, sqlx::FromRow, HttpFindListDelete, SqlxModel)]"));
+    }
+
+    #[test]
     fn sqlx_model_paginates_the_list() {
         let fields = vec![field("title", "String")];
-        let model = render_model("Project", false, true, false, &fields, Dialect::Sqlite);
+        let model = render_model("Project", false, false, true, false, &fields, Dialect::Sqlite);
         assert!(model.contains("pub struct ListQuery {\n        /// Number of rows to skip\n        pub offset: Option<usize>,"));
         assert!(model.contains("        pub limit: Option<usize>,\n    }"));
         // without --sqlx the list query stays empty
-        let model = render_model("Project", false, false, false, &fields, Dialect::Sqlite);
+        let model = render_model("Project", false, false, false, false, &fields, Dialect::Sqlite);
         assert!(model.contains("pub struct ListQuery {}"));
         assert!(model.contains("async fn list(_query: &ListQuery, _state: &AppState)"));
     }
@@ -2334,7 +2695,7 @@ CREATE INDEX book_idx ON book (code);
     #[test]
     fn sqlx_model_sets_timestamps_and_soft_deletes() {
         let fields = vec![field("title", "String")];
-        let model = render_model("Project", false, true, true, &fields, Dialect::Sqlite);
+        let model = render_model("Project", false, false, true, true, &fields, Dialect::Sqlite);
         assert!(model.contains("use chrono::{DateTime, Utc};"));
         assert_eq!(model.matches("#[sqlx_model(database = \"sqlite\", timestamps, soft_delete)]").count(), 2);
         assert!(model.contains("#[sqlx_model(database = \"sqlite\", model = \"Project\", timestamps)]"));
@@ -2343,9 +2704,9 @@ CREATE INDEX book_idx ON book (code);
     #[test]
     fn sqlx_model_targets_the_database() {
         let fields = vec![field("title", "String")];
-        let postgres = render_model("Project", false, true, false, &fields, Dialect::Postgres);
+        let postgres = render_model("Project", false, false, true, false, &fields, Dialect::Postgres);
         assert_eq!(postgres.matches("database = \"postgres\"").count(), 3);
-        let mysql = render_model("Project", true, true, false, &fields, Dialect::Mysql);
+        let mysql = render_model("Project", true, false, true, false, &fields, Dialect::Mysql);
         assert_eq!(mysql.matches("database = \"mysql\"").count(), 3);
         assert!(mysql.contains("#[derive(Serialize, Deserialize, JsonSchema, ApiComponent, HttpCreate, SqlxNewModel)]"));
     }
@@ -2431,12 +2792,12 @@ CREATE INDEX book_idx ON book (code);
     #[test]
     fn timestamps_are_added_to_the_model_and_updatable_structs() {
         let fields = vec![field("title", "String")];
-        let model = render_model("Project", false, false, true, &fields, Dialect::Sqlite);
+        let model = render_model("Project", false, false, false, true, &fields, Dialect::Sqlite);
         assert!(model.contains("use chrono::{DateTime, Utc};"));
         assert!(model.contains("pub struct Project {\n        pub id: Id,\n        pub title: String,\n        pub created_at: Option<DateTime<Utc>>,\n        pub updated_at: Option<DateTime<Utc>>,\n        pub deleted_at: Option<DateTime<Utc>>,\n    }"));
         assert!(model.contains("pub struct NewProject {\n        pub title: String,\n    }"));
         assert!(model.contains("pub struct UpdatableProject {\n        pub id: Id,\n        pub title: String,\n        pub updated_at: Option<DateTime<Utc>>,\n    }"));
-        assert!(!render_model("Project", false, false, false, &fields, Dialect::Sqlite).contains("chrono"));
+        assert!(!render_model("Project", false, false, false, false, &fields, Dialect::Sqlite).contains("chrono"));
     }
 
     #[test]
@@ -2474,12 +2835,12 @@ CREATE INDEX book_idx ON book (code);
             field("seen_at", "Option<NaiveDateTime>"),
             field("opens", "NaiveTime"),
         ];
-        let model = render_model("Project", false, false, false, &fields, Dialect::Sqlite);
+        let model = render_model("Project", false, false, false, false, &fields, Dialect::Sqlite);
         assert!(model.contains("use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};"));
-        let model = render_model("Project", false, false, true, &fields[1..2], Dialect::Sqlite);
+        let model = render_model("Project", false, false, false, true, &fields[1..2], Dialect::Sqlite);
         assert!(model.contains("use chrono::{DateTime, NaiveDate, Utc};"));
         // NaiveDateTime does not import DateTime
-        let model = render_model("Project", false, false, false, &fields[2..3], Dialect::Sqlite);
+        let model = render_model("Project", false, false, false, false, &fields[2..3], Dialect::Sqlite);
         assert!(model.contains("use chrono::{NaiveDateTime};"));
         assert!(render_migration("Project", &fields, false, Dialect::Sqlite).unwrap().contains(
             "    published_at DATETIME NOT NULL,\n    release DATE NOT NULL,\n    seen_at DATETIME,\n    opens TIME NOT NULL\n"
@@ -2614,7 +2975,7 @@ CREATE INDEX book_idx ON book (code);
 
     #[test]
     fn relation_implements_has_many_on_its_own_type() {
-        let rel = render_relation(&relation("Project", "Book", None), false, false, false, Dialect::Sqlite);
+        let rel = render_relation(&relation("Project", "Book", None), false, false, false, false, Dialect::Sqlite);
         assert!(rel.contains("use crate::project::{Project, Id};\n    use crate::book::Book;"));
         assert!(rel.contains("pub struct ProjectBooksQuery {\n        /// Number of rows to skip\n        pub offset: Option<usize>,"));
         assert!(rel.contains("pub struct ProjectBooks;"));
@@ -2628,29 +2989,29 @@ CREATE INDEX book_idx ON book (code);
 
     #[test]
     fn openapi_relation_is_documented() {
-        let rel = render_relation(&relation("Project", "Book", None), true, false, false, Dialect::Sqlite);
+        let rel = render_relation(&relation("Project", "Book", None), true, false, false, false, Dialect::Sqlite);
         assert!(rel.contains("#[derive(Deserialize, JsonSchema, ApiComponent)]\n    pub struct ProjectBooksQuery"));
         assert!(rel.contains("pub fn configure(cfg: &mut apistos::web::ServiceConfig) {\n        gen_documented_relation_endpoint!(ProjectBooks)(cfg)\n    }"));
     }
 
     #[test]
     fn sqlx_relation_pages_the_children_and_looks_up_the_parent() {
-        let rel = render_relation(&relation("Project", "Book", None), false, true, false, Dialect::Sqlite);
+        let rel = render_relation(&relation("Project", "Book", None), false, false, true, false, Dialect::Sqlite);
         assert!(rel.contains("const DEFAULT_LIMIT: i64 = 20;"));
         assert!(rel.contains("async fn list_related(id: Id, query: &ProjectBooksQuery, state: &AppState)"));
         assert!(rel.contains("let models = sqlx::query_as::<_, Book>(\n                \"SELECT * FROM book WHERE project_id = $1 ORDER BY id LIMIT $2 OFFSET $3\",\n            )\n            .bind(id)\n            .bind(limit)\n            .bind(offset)\n            .fetch_all(&state.pool)"));
         assert!(rel.contains("if models.is_empty() {\n                let parent = sqlx::query_scalar::<_, Id>(\n                    \"SELECT id FROM project WHERE id = $1\","));
         assert!(rel.contains("if parent.is_none() {\n                    return Ok(None);\n                }\n            }\n            Ok(Some(models))"));
-        let mysql = render_relation(&relation("Project", "Book", None), false, true, true, Dialect::Mysql);
+        let mysql = render_relation(&relation("Project", "Book", None), false, false, true, true, Dialect::Mysql);
         assert!(mysql.contains("\"SELECT * FROM book WHERE project_id = ? AND deleted_at IS NULL ORDER BY id LIMIT ? OFFSET ?\""));
         assert!(mysql.contains("\"SELECT id FROM project WHERE id = ? AND deleted_at IS NULL\""));
     }
 
     #[test]
     fn sqlx_relation_joins_the_through_table() {
-        let rel = render_relation(&relation("Project", "Category", Some("ProjectCategory")), false, true, false, Dialect::Postgres);
+        let rel = render_relation(&relation("Project", "Category", Some("ProjectCategory")), false, false, true, false, Dialect::Postgres);
         assert!(rel.contains("\"SELECT category.* FROM category JOIN projectcategory ON projectcategory.category_id = category.id WHERE projectcategory.project_id = $1 ORDER BY category.id LIMIT $2 OFFSET $3\""));
-        let rel = render_relation(&relation("Project", "Category", Some("ProjectCategory")), false, true, true, Dialect::Postgres);
+        let rel = render_relation(&relation("Project", "Category", Some("ProjectCategory")), false, false, true, true, Dialect::Postgres);
         assert!(rel.contains("WHERE projectcategory.project_id = $1 AND category.deleted_at IS NULL AND projectcategory.deleted_at IS NULL ORDER BY"));
     }
 
@@ -2699,7 +3060,7 @@ CREATE INDEX book_idx ON book (code);
     fn bootstrap_writes_main_and_helpers() {
         let root = std::env::temp_dir().join(format!("octopux-bootstrap-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
-        bootstrap(&root, false, &mut "".as_bytes(), &mut Vec::new()).unwrap();
+        bootstrap(&root, false, false, &mut "".as_bytes(), &mut Vec::new()).unwrap();
         let main = std::fs::read_to_string(root.join("src/main.rs")).unwrap();
         let helpers = std::fs::read_to_string(root.join("src/helpers.rs")).unwrap();
         assert!(main.starts_with(&(generated_header("//") + "mod helpers;\nuse ")));
@@ -2715,7 +3076,7 @@ CREATE INDEX book_idx ON book (code);
     fn openapi_bootstrap_writes_an_apistos_main() {
         let root = std::env::temp_dir().join(format!("octopux-bootstrap-openapi-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
-        bootstrap(&root, true, &mut "".as_bytes(), &mut Vec::new()).unwrap();
+        bootstrap(&root, true, false, &mut "".as_bytes(), &mut Vec::new()).unwrap();
         let main = std::fs::read_to_string(root.join("src/main.rs")).unwrap();
         let helpers = std::fs::read_to_string(root.join("src/helpers.rs")).unwrap();
         assert!(main.starts_with(&(generated_header("//") + "mod helpers;\nuse ")));
@@ -2733,11 +3094,88 @@ CREATE INDEX book_idx ON book (code);
         std::fs::create_dir_all(root.join("src")).unwrap();
         std::fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
         let mut output = Vec::new();
-        bootstrap(&root, false, &mut "y\n".as_bytes(), &mut output).unwrap();
+        bootstrap(&root, false, false, &mut "y\n".as_bytes(), &mut output).unwrap();
         assert!(String::from_utf8(output).unwrap().contains("main.rs already exists, overwrite it with the generated one? (y/N) "));
         assert!(std::fs::read_to_string(root.join("src/main.rs")).unwrap().starts_with(&(generated_header("//") + "mod helpers;\n")));
         assert!(root.join("src/helpers.rs").exists());
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn graphql_bootstrap_writes_a_main_serving_the_schema() {
+        let root = std::env::temp_dir().join(format!("octopux-bootstrap-graphql-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        bootstrap(&root, false, true, &mut "".as_bytes(), &mut Vec::new()).unwrap();
+        let main = std::fs::read_to_string(root.join("src/main.rs")).unwrap();
+        assert_eq!(main, super::with_header("//", &render_bootstrap_main(false, true)));
+        assert!(main.contains("struct Query(ApiQuery);") && main.contains("type Mutation = EmptyMutation;"));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn graphql_roots_are_merged_into_the_bootstrapped_main_on_disk() {
+        let root = std::env::temp_dir().join(format!("octopux-graphql-roots-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        bootstrap(&root, false, true, &mut "".as_bytes(), &mut Vec::new()).unwrap();
+        super::add_graphql_roots(&root, "author", "Author").unwrap();
+        super::add_graphql_roots(&root, "book", "Book").unwrap();
+        let main = std::fs::read_to_string(root.join("src/main.rs")).unwrap();
+        assert!(main.contains("struct Query(ApiQuery, author::AuthorQuery, book::BookQuery);"));
+        assert!(main.contains("#[derive(MergedObject, Default)]\nstruct Mutation(author::AuthorMutation, book::BookMutation);"));
+        assert!(!main.contains("EmptyMutation"));
+        // merging again leaves the file as it is
+        super::add_graphql_roots(&root, "author", "Author").unwrap();
+        assert_eq!(std::fs::read_to_string(root.join("src/main.rs")).unwrap(), main);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn graphql_roots_are_not_written_without_a_graphql_main() {
+        let root = std::env::temp_dir().join(format!("octopux-graphql-roots-plain-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        // no src/main.rs at all
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        super::add_graphql_roots(&root, "author", "Author").unwrap();
+        assert!(!root.join("src/main.rs").exists());
+        // a main bootstrapped without --graphql
+        std::fs::remove_dir_all(&root).unwrap();
+        bootstrap(&root, false, false, &mut "".as_bytes(), &mut Vec::new()).unwrap();
+        let main = std::fs::read_to_string(root.join("src/main.rs")).unwrap();
+        super::add_graphql_roots(&root, "author", "Author").unwrap();
+        assert_eq!(std::fs::read_to_string(root.join("src/main.rs")).unwrap(), main);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn relation_field_is_added_to_the_parent_model_on_disk() {
+        let root = std::env::temp_dir().join(format!("octopux-relation-field-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        let parent = super::with_header("//", &render_model("Author", false, true, true, false, &[field("name", "String")], Dialect::Sqlite));
+        std::fs::write(root.join("src/author.rs"), &parent).unwrap();
+        let rel = relation("Author", "Book", None);
+        super::add_relation_field(&root, &rel).unwrap();
+        let patched = std::fs::read_to_string(root.join("src/author.rs")).unwrap();
+        assert_eq!(patched, super::with_relation_field(&parent, &rel).unwrap());
+        super::add_relation_field(&root, &rel).unwrap();
+        assert_eq!(std::fs::read_to_string(root.join("src/author.rs")).unwrap(), patched);
+
+        // a parent generated without --graphql is left as it is, the field being printed to add by hand
+        let plain = super::with_header("//", &render_model("Author", false, false, true, false, &[field("name", "String")], Dialect::Sqlite));
+        std::fs::write(root.join("src/author.rs"), &plain).unwrap();
+        super::add_relation_field(&root, &rel).unwrap();
+        assert_eq!(std::fs::read_to_string(root.join("src/author.rs")).unwrap(), plain);
+        // as is a missing parent
+        std::fs::remove_file(root.join("src/author.rs")).unwrap();
+        super::add_relation_field(&root, &rel).unwrap();
+        assert!(!root.join("src/author.rs").exists());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn generate_relation_accepts_graphql() {
+        let opt = Opt::from_iter_safe(&["octopux", "generate-relation", "--parent", "Author", "--child", "Book", "--graphql"]).unwrap();
+        assert!(matches!(opt, Opt::GenerateRelation { graphql: true, .. }));
     }
 
     #[test]
@@ -2779,12 +3217,99 @@ CREATE INDEX book_idx ON book (code);
     }
 
     #[test]
+    fn graphql_bootstrap_requires_bootstrap() {
+        assert!(Cli::from_iter_safe(&["octopux", "--bootstrap", "--graphql"]).unwrap().graphql);
+        assert!(Cli::from_iter_safe(&["octopux", "--graphql"]).is_err());
+    }
+
+    #[test]
+    fn graphql_bootstrap_serves_the_schema_and_graphiql() {
+        for openapi in [false, true] {
+            let main = render_bootstrap_main(openapi, true);
+            assert!(main.contains("use async_graphql_actix_web::GraphQL;"));
+            assert!(main.contains("#[derive(MergedObject, Default)]\nstruct Query(ApiQuery);"));
+            assert!(main.contains("type Mutation = EmptyMutation;"));
+            assert!(main.contains("let schema = Schema::build(Query::default(), Mutation::default(), EmptySubscription)\n        .data(state.clone())"));
+            assert!(main.contains(".route(web::post().to(GraphQL::new(schema.clone())))\n                    .route(web::get().to(graphiql)),"));
+            assert!(!main.contains("{graphql"));
+            assert!(main.starts_with("#![recursion_limit = \"512\"]\n\nmod helpers;"));
+        }
+        // the plain actix app has no route after apistos builds the app
+        assert!(render_bootstrap_main(true, true).contains("SwaggerUIConfig::new(&\"/swagger\")),\n            )\n            // GraphQL"));
+        for openapi in [false, true] {
+            let main = render_bootstrap_main(openapi, false);
+            assert!(!main.contains("graphql") && !main.contains("{graphql"));
+        }
+    }
+
+    #[test]
+    fn graphql_bootstrap_adds_async_graphql() {
+        let deps = bootstrap_dependencies(false, true);
+        assert!(deps.iter().any(|d| d == &["async-graphql@7", "--features", "chrono"]));
+        assert!(deps.iter().any(|d| d == &["async-graphql-actix-web@7"]));
+        assert!(!bootstrap_dependencies(true, false).iter().any(|d| d[0].starts_with("async-graphql")));
+    }
+
+    #[test]
+    fn graphql_model_declares_a_complex_object_for_the_relations() {
+        let model = render_model("Project", false, true, true, false, &[field("name", "String")], Dialect::Sqlite);
+        assert!(model.contains("#[octopux_info(path = \"project\")]\n    #[graphql(complex)]\n    pub struct Project {"));
+        assert!(model.contains(&format!("#[ComplexObject]\n    impl Project {{\n{}\n    }}", super::GRAPHQL_RELATIONS_MARKER)));
+        assert!(!render_model("Project", false, false, true, false, &[field("name", "String")], Dialect::Sqlite).contains("complex"));
+    }
+
+    #[test]
+    fn graphql_relation_resolves_the_children_of_the_parent() {
+        let rel = render_relation(&relation("Project", "Book", None), false, true, true, false, Dialect::Sqlite);
+        assert!(rel.contains("pub async fn resolve(ctx: &async_graphql::Context<'_>, id: Id, offset: Option<usize>, limit: Option<usize>) -> async_graphql::Result<Vec<Book>> {"));
+        assert!(rel.contains("ProjectBooks::list_related(id, &ProjectBooksQuery { offset, limit }, state.get_ref()).await?;"));
+        assert!(!render_relation(&relation("Project", "Book", None), false, false, true, false, Dialect::Sqlite).contains("async_graphql"));
+    }
+
+    #[test]
+    fn relation_field_is_inserted_once_in_the_complex_object_of_the_parent() {
+        let parent = render_model("Project", false, true, true, false, &[field("name", "String")], Dialect::Sqlite);
+        let rel = relation("Project", "Book", None);
+        let patched = super::with_relation_field(&parent, &rel).unwrap();
+        assert!(patched.contains(&format!(
+            "{}\n        /// The books of the project, paginated\n        async fn books(&self, ctx: &Context<'_>, offset: Option<usize>, limit: Option<usize>) -> async_graphql::Result<Vec<crate::book::Book>> {{\n            crate::project_books::resolve(ctx, self.id, offset, limit).await\n        }}\n    }}",
+            super::GRAPHQL_RELATIONS_MARKER
+        )));
+        assert_eq!(super::with_relation_field(&patched, &rel).unwrap(), patched);
+        // a second relation goes next to the first one
+        let categories = super::with_relation_field(&patched, &relation("Project", "Category", Some("ProjectCategory"))).unwrap();
+        assert!(categories.contains("crate::project_books::resolve(") && categories.contains("crate::project_categories::resolve("));
+        // a model generated without --graphql has no complex object
+        let plain = render_model("Project", false, false, true, false, &[field("name", "String")], Dialect::Sqlite);
+        assert!(super::with_relation_field(&plain, &rel).is_none());
+    }
+
+    #[test]
+    fn graphql_roots_of_models_are_merged_once_into_the_schema() {
+        let main = render_bootstrap_main(true, true);
+        let first = super::with_graphql_roots(&main, "project", "Project").unwrap();
+        assert!(first.contains("struct Query(ApiQuery, project::ProjectQuery);"));
+        assert!(first.contains("#[derive(MergedObject, Default)]\nstruct Mutation(project::ProjectMutation);"));
+        assert!(!first.contains("EmptyMutation"));
+        assert_eq!(super::with_graphql_roots(&first, "project", "Project").unwrap(), first);
+        // the roots of a second model are appended to those of the first
+        let second = super::with_graphql_roots(&first, "book_author", "BookAuthor").unwrap();
+        assert!(second.contains("struct Query(ApiQuery, project::ProjectQuery, book_author::BookAuthorQuery);"));
+        assert!(second.contains("struct Mutation(project::ProjectMutation, book_author::BookAuthorMutation);"));
+        // a model whose name ends another one is merged too
+        let author = super::with_graphql_roots(&second, "author", "Author").unwrap();
+        assert!(author.contains("book_author::BookAuthorQuery, author::AuthorQuery);"));
+        // a main bootstrapped without --graphql has no schema
+        assert!(super::with_graphql_roots(&render_bootstrap_main(true, false), "project", "Project").is_none());
+    }
+
+    #[test]
     fn bootstrap_dependencies_pin_octopux_to_the_cli_version() {
         let tag = format!("v{}", env!("CARGO_PKG_VERSION"));
-        let deps = bootstrap_dependencies(true);
+        let deps = bootstrap_dependencies(true, false);
         assert_eq!(deps[0], ["octopux", "--git", "https://github.com/ctaque/octopux", "--tag", tag.as_str(), "--features", "openapi,sqlx"]);
         assert!(deps.iter().any(|d| d == &["apistos-schemars@0.8", "--rename", "schemars"]));
-        let deps = bootstrap_dependencies(false);
+        let deps = bootstrap_dependencies(false, false);
         assert_eq!(deps[0], ["octopux", "--git", "https://github.com/ctaque/octopux", "--tag", tag.as_str(), "--features", "sqlx"]);
         assert!(!deps.iter().any(|d| d[0].starts_with("apistos")));
     }

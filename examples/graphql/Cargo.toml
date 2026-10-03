@@ -1,0 +1,24 @@
+[package]
+name = "graphql"
+version = "0.0.0"
+edition.workspace = true
+publish = false
+
+[package.metadata.release]
+release = false
+
+# Generated with `octopux --bootstrap --graphql`, `octopux generate-model --graphql --sqlx --migration --fields`
+# (Author and Book) and `octopux generate-relation --parent Author --child Book --graphql --sqlx --migration`
+
+[dependencies]
+octopux = { workspace = true, features = ["sqlx"] }
+actix-web.workspace = true
+async-graphql = { version = "7", features = ["chrono"] }
+async-graphql-actix-web = "7"
+chrono.workspace = true
+serde.workspace = true
+sqlx.workspace = true
+
+[dev-dependencies]
+actix-http = "3"
+serde_json.workspace = true
